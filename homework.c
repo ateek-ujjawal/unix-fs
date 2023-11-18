@@ -22,6 +22,8 @@
 #include "fs5600.h"
 
 struct fs_super *super;
+unsigned char *block_bmp;
+unsigned char *inode_bmp;
 
 /* disk access. All access is in terms of 4KB blocks; read and
  * write functions return 0 (success) or -EIO.
@@ -75,9 +77,26 @@ void* lab3_init(struct fuse_conn_info *conn, struct fuse_config *cfg)
     memset(super, 0, sizeof(*super));
     
     /* Read super block(0) from disk into *super */
-    if(block_read(super, 0, 1) != 0) {
-    	//faulty image error code
+    block_read(super, 0, 1);
+    
+    block_bmp = malloc(sizeof(*block_bmp));
+    memset(block_bmp, 0, sizeof(*block_bmp));
+    inode_bmp = malloc(sizeof(*inode_bmp));
+    memset(inode_bmp, 0, sizeof(*inode_bmp));
+    
+    /* Read block bitmap into block_bmp */
+    block_read(block_bmp, 1, super->blk_map_len);
+    
+    /* Read inode bitmap into inode_bmp */
+    block_read(inode_bmp, 1 + super->blk_map_len, super->in_map_len);
+    
+    /* for(int i = 0; i < super->blk_map_len * BLOCK_SIZE; i++) {
+    	fprintf(stdout, "block bitmap bit %d is %d\n", i, bit_test(block_bmp, i));
     }
+    for(int i = 0; i < super->in_map_len * BLOCK_SIZE; i++) {
+    	fprintf(stdout, "inode bitmap bit %d is %d\n", i, bit_test(inode_bmp, i));
+    }*/
+    
     return NULL;
 }
 
