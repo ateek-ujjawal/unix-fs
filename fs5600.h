@@ -46,4 +46,19 @@ struct fs_inode {
     int32_t pad[4];   /* to make it 64 bytes */
 };
 
+/* why "static inline"? It's a long story...
+ */
+static inline void bit_set(unsigned char *map, int i)
+{
+    map[i/8] |= (1 << (i%8));
+}
+static inline void bit_clear(unsigned char *map, int i)
+{
+    map[i/8] &= ~(1 << (i%8));
+}
+static inline int bit_test(unsigned char *map, int i)
+{
+    return (map[i/8] & (1 << (i%8))) != 0;
+}
+
 #endif
