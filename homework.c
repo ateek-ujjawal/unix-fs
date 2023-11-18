@@ -21,6 +21,8 @@
 
 #include "fs5600.h"
 
+struct fs_super *super;
+
 /* disk access. All access is in terms of 4KB blocks; read and
  * write functions return 0 (success) or -EIO.
  */
@@ -69,6 +71,13 @@ void inode_2_stat(struct stat *sb, struct fs_inode *in)
 
 void* lab3_init(struct fuse_conn_info *conn, struct fuse_config *cfg)
 {
+    super = malloc(sizeof(*super));
+    memset(super, 0, sizeof(*super));
+    
+    /* Read super block(0) from disk into *super */
+    if(block_read(super, 0, 1) != 0) {
+    	//faulty image error code
+    }
     return NULL;
 }
 
