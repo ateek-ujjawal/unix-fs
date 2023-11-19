@@ -24,6 +24,9 @@
 struct fs_super *super;
 unsigned char *block_bmp;
 unsigned char *inode_bmp;
+struct fs_inode *inode_tbl;
+uint32_t inode_count;
+uint32_t inode_region_blk;
 
 /* disk access. All access is in terms of 4KB blocks; read and
  * write functions return 0 (success) or -EIO.
@@ -90,6 +93,34 @@ void* lab3_init(struct fuse_conn_info *conn, struct fuse_config *cfg)
     /* Read inode bitmap into inode_bmp */
     block_read(inode_bmp, 1 + super->blk_map_len, super->in_map_len);
     
+    /* Read inode table into inode_tbl */
+    inode_region_blk = 1 + super->blk_map_len + super->in_map_len;
+    int inodes_in_blk = BLOCK_SIZE / sizeof(struct fs_inode);
+    inode_count = super->inodes_len * inodes_in_blk;
+    
+    inode_tbl = malloc(inode_count * sizeof(struct fs_inode));
+    memset(inode_tbl, 0, sizeof(inode_count * sizeof(struct fs_inode)));
+    
+    block_read(inode_tbl, inode_region_blk, super->inodes_len);
+    	
+    /*	
+    struct fs_inode inode;
+    for(int i = 0; i < inode_count; i++) {
+    	inode = *(inode_tbl + i);
+    	fprintf(stdout, "uid: %d\n", inode.uid);
+    	fprintf(stdout, "gid: %d\n", inode.gid);
+    	fprintf(stdout, "mode: %o\n", inode.mode);
+    	fprintf(stdout, "mtime: %d\n", inode.mtime);
+    	fprintf(stdout, "size: %d\n", inode.size);
+    	for(int j = 0; j < n_direct; j++) {
+    		fprintf(stdout, "ptrs[%d]: %d\n", j, inode.ptrs[j]);
+    	}
+    	fprintf(stdout, "indir_1: %d\n", inode.indir_1);
+    	fprintf(stdout, "indir_2: %d\n", inode.indir_2); 	   
+    	fprintf(stdout, "\n"); 	    	    	    	    	
+    }
+    */
+    
     /* for(int i = 0; i < super->blk_map_len * BLOCK_SIZE; i++) {
     	fprintf(stdout, "block bitmap bit %d is %d\n", i, bit_test(block_bmp, i));
     }
@@ -98,6 +129,63 @@ void* lab3_init(struct fuse_conn_info *conn, struct fuse_config *cfg)
     }*/
     
     return NULL;
+}
+
+int lab3_getattr(const char *path, struct stat *sb, struct fuse_file_info *fi) {
+
+    /* Read tokens from path through parser */
+    const int max_tokens = 32;
+    char *tokens[max_tokens], linebuf[1024];
+    int count = split_path(path, max_tokens, tokens, linebuf, sizeof(linebuf));
+    
+    
+    struct fs_inode inode;
+    int dir_in_blk = BLOCK_SIZE / sizeof(struct fs_dirent);
+    char *title = "";
+    
+    /* Brute force search on all directory entries in the file system */
+    for(int i = 0; i < count; i++) {
+    	title = "";
+    	int j = 0;
+loop:
+    	while(strcmp(title, tokens[i]) && j < inode_count) {
+    		inode = *(inode_tbl + j);
+    		struct fs_dirent *dir_entries, dir_entry;
+    		dir_entries = malloc(dir_in_blk * sizeof(struct fs_dirent));
+    		memset(dir_entries, 0, dir_in_blk * sizeof(struct fs_dirent));
+    		int type = (inode.mode & 0777000) >> 9;
+    		if(bit_test(inode_bmp, j) && type == 0040) {
+    			for (int k = 0; k < N_DIRECT; k++) {
+    				if(inode.ptrs[k] >= inode_region_blk) {
+    					block_read(dir_entries, inode.ptrs[k], 1);
+    					for(int l = 0; l < dir_in_blk; l++) {
+    						dir_entry = *(dir_entries + l);
+    						if(dir_entry.valid && !strcmp(dir_entry.name, tokens[i])) {
+    							title = dir_entry.name;
+    							goto loop;
+    						}
+    					}
+    				}
+    			}
+    		}
+    		j++;
+    	}
+    }
+    
+    if(strcmp(title, "")) {
+    	sb = malloc(sizeof(*sb));
+    	memset(sb, 0, sizeof(*sb));
+    	sb->st_mode = inode.mode;
+    	sb->st_nlink = 1;
+    	sb->st_uid = inode.uid;
+    	sb->st_gid = inode.gid;
+    	sb->st_size = inode.size;
+    	sb->st_blocks = div_round_up(inode.size, BLOCK_SIZE);
+    	sb->st_atime = sb->st_mtime = sb->st_ctime = inode.mtime;
+    } else {
+    	return -ENOENT;
+    }
+    return 0;
 }
 
 /* for read-only version you need to implement:
@@ -122,7 +210,7 @@ void* lab3_init(struct fuse_conn_info *conn, struct fuse_config *cfg)
  */
 struct fuse_operations fs_ops = {
     .init = lab3_init,
-//    .getattr = lab3_getattr,
+    .getattr = lab3_getattr,
 //    .readdir = lab3_readdir,
 //    .read = lab3_read,
 
