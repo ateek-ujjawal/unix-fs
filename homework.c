@@ -99,23 +99,22 @@ uint32_t search_dir(const char *dir_name, int32_t block) {
     return 0;
 }
 
-uint32_t _getinodeno(const char *path) {
+int _getinodeno(const char *path, uint32_t *inode_no) {
     /* Read tokens from path through parser */
     const int max_tokens = 32;
     char *tokens[max_tokens], linebuf[1024];
     int n_tokens =
         split_path(path, max_tokens, tokens, linebuf, sizeof(linebuf));
 
-    uint32_t inode_no = 1; // initially, starts from root dir
     int i = 0;             // index of token
     while (i < n_tokens) {
-        struct fs_inode *inode = inode_tbl + inode_no; // get inode
+        struct fs_inode *inode = inode_tbl + *inode_no; // get inode
 
         int is_dir = inode->mode >> 14 & 1;
 
         // if current inode is for a file, it's a wrong path
         if (!is_dir) {
-            return 0;
+            return -ENOTDIR;
         }
 
         // search in direct pointers
@@ -123,7 +122,7 @@ uint32_t _getinodeno(const char *path) {
         for (int j = 0; j < N_DIRECT; j++) {
             uint32_t search_inode = search_dir(tokens[i], inode->ptrs[j]);
             if (search_inode) {
-                inode_no = search_inode;
+                *inode_no = search_inode;
                 is_find = 1;
                 i++;
                 break;
@@ -142,7 +141,7 @@ uint32_t _getinodeno(const char *path) {
             for (int j = 0; j < max_blocks; j++) {
                 uint32_t search_inode = search_dir(tokens[i], *(blks + j));
                 if (search_inode) {
-                    inode_no = search_inode;
+                    *inode_no = search_inode;
                     is_find = 1;
                     i++;
                     break;
@@ -164,7 +163,7 @@ uint32_t _getinodeno(const char *path) {
                         uint32_t search_inode =
                             search_dir(tokens[i], *(blks + k));
                         if (search_inode) {
-                            inode_no = search_inode;
+                            *inode_no = search_inode;
                             is_find = 1;
                             i++;
                             break;
@@ -175,11 +174,11 @@ uint32_t _getinodeno(const char *path) {
         }
 
         if (!is_find) {
-            return 0;
+            return -ENOENT;
         }
     }
 
-    return inode_no;
+    return 0;
 }
 
 void *lab3_init(struct fuse_conn_info *conn, struct fuse_config *cfg) {
@@ -243,14 +242,15 @@ void *lab3_init(struct fuse_conn_info *conn, struct fuse_config *cfg) {
 }
 
 int lab3_getattr(const char *path, struct stat *sb, struct fuse_file_info *fi) {
+	uint32_t *inode_no = (uint32_t *)1; // initially, starts from root dir
+    int res = _getinodeno(path, inode_no);
 
-    uint32_t inode_no = _getinodeno(path);
-
-    if (!inode_no) {
-        return -ENOENT;
+	// res = -ENOENT or -ENOTDIR
+    if (res < 0) {
+        return res;
     }
 
-    struct fs_inode *inode = inode_tbl + inode_no;
+    struct fs_inode *inode = inode_tbl + *inode_no;
     inode_2_stat(sb, inode);
     return 0;
 
