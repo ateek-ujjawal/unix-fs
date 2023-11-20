@@ -91,8 +91,7 @@ uint32_t search_dir(const char *dir_name, int32_t block) {
     block_read(dirs, block, 1);
     for (int j = 0; j < max_entries; j++) {
         struct fs_dirent *dir_entry = dirs + j;
-        if (dir_entry->valid && bit_test(inode_bmp, dir_entry->inode) &&
-            !strcmp(dir_name, dir_entry->name)) {
+        if (dir_entry->valid && !strcmp(dir_name, dir_entry->name)) {
             return dir_entry->inode;
         }
     }
