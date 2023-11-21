@@ -30,7 +30,7 @@ uint32_t inode_region_blk;
 int32_t data_blk;
 
 #define MAX_ENTRIES (BLOCK_SIZE / sizeof(struct fs_dirent))
-#define MAX_BLKS_IN_BLK (BLOCK_SIZE / sizeof(uint32_t))
+#define MAX_BLKS_IN_BLK (BLOCK_SIZE / sizeof(int32_t))
 
 /* disk access. All access is in terms of 4KB blocks; read and
  * write functions return 0 (success) or -EIO.
@@ -85,7 +85,6 @@ int check_data_blk(int32_t blk) {
 }
 
 uint32_t search_dir(const char *dir_name, int32_t block) {
-	
     if (!check_data_blk(block)) {
         return 0;
     }
@@ -155,12 +154,12 @@ int _getinodeno(const char *path, uint32_t *inode_no) {
 
         // search in double indirect pointer
         if (!is_find && check_data_blk(inode->indir_2)) {
-            uint32_t *blks_1 = calloc(MAX_BLKS_IN_BLK, sizeof(uint32_t));
+            int32_t *blks_1 = calloc(MAX_BLKS_IN_BLK, sizeof(int32_t));
             block_read(blks_1, inode->indir_2, 1);
             for (int j = 0; j < MAX_BLKS_IN_BLK && !is_find; j++) {
-                uint32_t blks_2 = *(blks_1 + j);
+                int32_t blks_2 = *(blks_1 + j);
                 if (check_data_blk(blks_2)) {
-                    uint32_t *blks = calloc(MAX_BLKS_IN_BLK, sizeof(uint32_t));
+                    int32_t *blks = calloc(MAX_BLKS_IN_BLK, sizeof(int32_t));
                     block_read(blks, blks_2, 1);
                     for (int k = 0; k < MAX_BLKS_IN_BLK; k++) {
                         uint32_t search_inode =
@@ -185,17 +184,17 @@ int _getinodeno(const char *path, uint32_t *inode_no) {
 }
 
 void *lab3_init(struct fuse_conn_info *conn, struct fuse_config *cfg) {
-    super = calloc(BLOCK_SIZE, sizeof(*super));
+    super = calloc(1, sizeof(struct fs_super));
 
     /* Read super block(0) from disk into *super */
     block_read(super, 0, 1);
 
-    block_bmp = calloc(BLOCK_SIZE, sizeof(BLOCK_SIZE));
+    block_bmp = calloc(BLOCK_SIZE * super->blk_map_len, sizeof(unsigned char));
     
     /* Read block bitmap into block_bmp */
     block_read(block_bmp, 1, super->blk_map_len);
     
-    inode_bmp = calloc(BLOCK_SIZE, sizeof(BLOCK_SIZE));
+    inode_bmp = calloc(BLOCK_SIZE * super->in_map_len, sizeof(unsigned char));
     
     /* Read inode bitmap into inode_bmp */
     block_read(inode_bmp, 1 + super->blk_map_len, super->in_map_len);
@@ -205,7 +204,7 @@ void *lab3_init(struct fuse_conn_info *conn, struct fuse_config *cfg) {
     int inodes_in_blk = BLOCK_SIZE / sizeof(struct fs_inode);
     inode_count = super->inodes_len * inodes_in_blk;
 
-    inode_tbl = calloc(inode_count * sizeof(struct fs_inode), sizeof(struct fs_inode));
+    inode_tbl = calloc(inode_count, sizeof(struct fs_inode));
 
     block_read(inode_tbl, inode_region_blk, super->inodes_len);
 
