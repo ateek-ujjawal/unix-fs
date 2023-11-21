@@ -176,7 +176,7 @@ int _getinodeno(int argc, char **argv, uint32_t *inode_no) {
 
 void *lab3_init(struct fuse_conn_info *conn, struct fuse_config *cfg) {
 
-    super = calloc(BLOCK_SIZE, sizeof(*super));
+    super = calloc(1, sizeof(struct fs_super));
 
     /* Read super block(0) from disk into *super */
     block_read(super, 0, 1);
