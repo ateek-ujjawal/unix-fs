@@ -244,10 +244,10 @@ void *lab3_init(struct fuse_conn_info *conn, struct fuse_config *cfg) {
 }
 
 int lab3_getattr(const char *path, struct stat *sb, struct fuse_file_info *fi) {
-	uint32_t *inode_no = malloc(sizeof(uint32_t)); 
-	*inode_no = 1; // initially, starts from root dir
-    int res = _getinodeno(path, inode_no);
+    uint32_t *inode_no = calloc(1, sizeof(*inode_no)); // initially, starts from root dir
+    *inode_no = 1;
     // _getinodeno = -ENOENT or -ENOTDIR
+    int res = _getinodeno(path, inode_no);
     if (res < 0) {
         return res;
     }
