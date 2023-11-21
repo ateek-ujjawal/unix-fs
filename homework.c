@@ -31,6 +31,7 @@ int32_t data_blk;
 
 #define MAX_ENTRIES (BLOCK_SIZE / sizeof(struct fs_dirent))
 #define MAX_BLKS_IN_BLK (BLOCK_SIZE / sizeof(int32_t))
+#define MAX_TOKENS 32
 
 /* disk access. All access is in terms of 4KB blocks; read and
  * write functions return 0 (success) or -EIO.
@@ -105,15 +106,8 @@ int is_dir(struct fs_inode *inode) {
     return inode->mode >> 14 & 1;
 }
 
-int _getinodeno(const char *path, uint32_t *inode_no) {
-    /* Read tokens from path through parser */
-    const int max_tokens = 32;
-    char *tokens[max_tokens], linebuf[1024];
-    int n_tokens =
-        split_path(path, max_tokens, tokens, linebuf, sizeof(linebuf));
-
-    int i = 0;             // index of token
-    while (i < n_tokens) {
+int _getinodeno(int argc, char **argv, uint32_t *inode_no) {
+    for (int i = 0; i < argc; i++) {
         struct fs_inode *inode = inode_tbl + *inode_no; // get inode
 
         // if current inode is for a file, it's a wrong path
@@ -124,11 +118,10 @@ int _getinodeno(const char *path, uint32_t *inode_no) {
         // search in direct pointers
         int is_find = 0;
         for (int j = 0; j < N_DIRECT; j++) {
-            uint32_t search_inode = search_dir(tokens[i], inode->ptrs[j]);
+            uint32_t search_inode = search_dir(argv[i], inode->ptrs[j]);
             if (search_inode) {
                 *inode_no = search_inode;
                 is_find = 1;
-                i++;
                 break;
             }
         }
@@ -142,11 +135,10 @@ int _getinodeno(const char *path, uint32_t *inode_no) {
             int32_t *blks = calloc(MAX_BLKS_IN_BLK, sizeof(int32_t));
             block_read(blks, inode->indir_1, 1);
             for (int j = 0; j < MAX_BLKS_IN_BLK; j++) {
-                uint32_t search_inode = search_dir(tokens[i], *(blks + j));
+                uint32_t search_inode = search_dir(argv[i], *(blks + j));
                 if (search_inode) {
                     *inode_no = search_inode;
                     is_find = 1;
-                    i++;
                     break;
                 }
             }
@@ -163,11 +155,10 @@ int _getinodeno(const char *path, uint32_t *inode_no) {
                     block_read(blks, blks_2, 1);
                     for (int k = 0; k < MAX_BLKS_IN_BLK; k++) {
                         uint32_t search_inode =
-                            search_dir(tokens[i], *(blks + k));
+                            search_dir(argv[i], *(blks + k));
                         if (search_inode) {
                             *inode_no = search_inode;
                             is_find = 1;
-                            i++;
                             break;
                         }
                     }
@@ -241,10 +232,15 @@ void *lab3_init(struct fuse_conn_info *conn, struct fuse_config *cfg) {
 }
 
 int lab3_getattr(const char *path, struct stat *sb, struct fuse_file_info *fi) {
-    uint32_t *inode_no = calloc(1, sizeof(*inode_no)); // initially, starts from root dir
-    *inode_no = 1;
-    // _getinodeno = -ENOENT or -ENOTDIR
-    int res = _getinodeno(path, inode_no);
+    uint32_t *inode_no = malloc(sizeof(uint32_t));
+    *inode_no = 1; // initially, starts from root dir
+    
+    /* Read tokens from path through parser */
+    char *tokens[MAX_TOKENS], linebuf[1024];
+    int n_tokens =
+        split_path(path, MAX_TOKENS, tokens, linebuf, sizeof(linebuf));
+        
+    int res = _getinodeno(n_tokens, tokens, inode_no);
     if (res < 0) {
         return res;
     }
@@ -337,7 +333,12 @@ int lab3_readdir(const char *path, void *ptr, fuse_fill_dir_t filler, off_t offs
                  struct fuse_file_info *fi, enum fuse_readdir_flags flags) {
 	uint32_t *inode_no = malloc(sizeof(uint32_t)); 
 	*inode_no = 1; // initially, starts from root dir
-    int res = _getinodeno(path, inode_no);
+    /* Read tokens from path through parser */
+    char *tokens[MAX_TOKENS], linebuf[1024];
+    int n_tokens =
+        split_path(path, MAX_TOKENS, tokens, linebuf, sizeof(linebuf));
+        
+    int res = _getinodeno(n_tokens, tokens, inode_no);
     if (res < 0) {
         return res;
     }
@@ -452,7 +453,12 @@ int lab3_read(const char *path, char *buf, size_t len, off_t offset,
               struct fuse_file_info *fi) {
     uint32_t *inode_no = malloc(sizeof(uint32_t)); 
     *inode_no = 1; // initially, starts from root dir
-    int res = _getinodeno(path, inode_no);
+    /* Read tokens from path through parser */
+    char *tokens[MAX_TOKENS], linebuf[1024];
+    int n_tokens =
+        split_path(path, MAX_TOKENS, tokens, linebuf, sizeof(linebuf));
+        
+    int res = _getinodeno(n_tokens, tokens, inode_no);
     if (res < 0) {
         return res;
     }
