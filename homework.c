@@ -175,7 +175,8 @@ int _getinodeno(int argc, char **argv, uint32_t *inode_no) {
 }
 
 void *lab3_init(struct fuse_conn_info *conn, struct fuse_config *cfg) {
-    super = calloc(1, sizeof(struct fs_super));
+
+    super = calloc(BLOCK_SIZE, sizeof(*super));
 
     /* Read super block(0) from disk into *super */
     block_read(super, 0, 1);
@@ -395,7 +396,7 @@ char *read_blk_file(uint32_t blk) {
 char *get_file(struct fs_inode *inode) {
     char *start, *buffer, *blk;
     
-    buffer = calloc(BLOCK_SIZE, sizeof(char));
+    buffer = calloc(BLOCK_SIZE, inode->size);
     start = buffer;
 
     //Read direct pointer block data into buffer
@@ -407,16 +408,13 @@ char *get_file(struct fs_inode *inode) {
     	    buffer = buffer + BLOCK_SIZE;
     	}    
     }
-   
-   
     
     //Read indirect pointer block data into buffer
     if (check_data_blk(inode->indir_1)) {
-        uint32_t *blks = calloc(MAX_BLKS_IN_BLK, sizeof(uint32_t));
+        uint32_t *blks = calloc(MAX_BLKS_IN_BLK, sizeof(*blks));
         block_read(blks, inode->indir_1, 1);
         for (int j = 0; j < MAX_BLKS_IN_BLK; j++) {
-            uint32_t blk_i = *(blks + j);
-            blk = read_blk_file(*(blks + j));   
+    	    blk = read_blk_file(*(blks + j));
             if (blk != NULL) {
                 memset(buffer, 0, BLOCK_SIZE);
             	memcpy(buffer, blk, BLOCK_SIZE);         	
@@ -427,16 +425,16 @@ char *get_file(struct fs_inode *inode) {
     
     //Read double indirect pointer block data into buffer;
     if (check_data_blk(inode->indir_2)) {
-        uint32_t *blks_1 = calloc(MAX_BLKS_IN_BLK, sizeof(uint32_t));
+        uint32_t *blks_1 = calloc(MAX_BLKS_IN_BLK, sizeof(*blks_1));
         block_read(blks_1, inode->indir_2, 1);
         for (int j = 0; j < MAX_BLKS_IN_BLK; j++) {
             uint32_t blks_2 = *(blks_1 + j);
             if (check_data_blk(blks_2)) {
-                uint32_t *blks = calloc(MAX_BLKS_IN_BLK, sizeof(uint32_t));
+                uint32_t *blks = calloc(MAX_BLKS_IN_BLK, sizeof(*blks));
                 block_read(blks, blks_2, 1);
                 for (int k = 0; k < MAX_BLKS_IN_BLK; k++) {
 		    blk = read_blk_file(*(blks + k));
-		    if (buffer != NULL) {
+		    if (blk != NULL) {
     	    		memset(buffer, 0, BLOCK_SIZE);
 		    	memcpy(buffer, blk, BLOCK_SIZE);	
 		    	buffer = buffer + BLOCK_SIZE;
@@ -468,34 +466,7 @@ int lab3_read(const char *path, char *buf, size_t len, off_t offset,
         return -EISDIR;
     }
     
-    fprintf(stdout, "size: %d\n", inode->size);
-    
-    for(int i = 0; i < N_DIRECT; i++)
-    	fprintf(stdout, "block %d: %d\n", i, inode->ptrs[i]);
-    	
-    if (check_data_blk(inode->indir_1)) {
-        uint32_t *blks = calloc(MAX_BLKS_IN_BLK, sizeof(uint32_t));
-        block_read(blks, inode->indir_1, 1);
-        for (int j = 0; j < MAX_BLKS_IN_BLK; j++) {
-    	    fprintf(stdout, "block: %d\n", *(blks + j));
-        }
-    }
-    
-    if (check_data_blk(inode->indir_2)) {
-        uint32_t *blks_1 = calloc(MAX_BLKS_IN_BLK, sizeof(uint32_t));
-        block_read(blks_1, inode->indir_2, 1);
-        for (int j = 0; j < MAX_BLKS_IN_BLK; j++) {
-            uint32_t blks_2 = *(blks_1 + j);
-            if (check_data_blk(blks_2)) {
-                uint32_t *blks = calloc(MAX_BLKS_IN_BLK, sizeof(uint32_t));
-                block_read(blks, blks_2, 1);
-                for (int k = 0; k < MAX_BLKS_IN_BLK; k++) {
-    	    	    fprintf(stdout, "block: %d\n", *(blks + k));
-                }
-            }
-        }
-    }
-    
+    /* Read len bytes from offset, if offset + len is less than file size, otherwise read till end of file */
     int bytes_to_copy = inode->size;
     if(offset + len < inode->size) {
     	bytes_to_copy = len;
