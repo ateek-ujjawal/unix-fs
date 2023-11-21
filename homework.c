@@ -77,7 +77,7 @@ void inode_2_stat(struct stat *sb, struct fs_inode *in) {
 
 // check the block is located at data blocks region and in use
 int check_data_blk(int32_t blk) {
-    if (blk >= data_blk /*&& bit_test(block_bmp, blk)*/) {
+    if (blk >= data_blk && bit_test(block_bmp, blk)) {
         return 1;
     }
 
@@ -185,20 +185,18 @@ int _getinodeno(const char *path, uint32_t *inode_no) {
 }
 
 void *lab3_init(struct fuse_conn_info *conn, struct fuse_config *cfg) {
-    super = malloc(sizeof(*super));
-    memset(super, 0, sizeof(*super));
+    super = calloc(BLOCK_SIZE, sizeof(*super));
 
     /* Read super block(0) from disk into *super */
     block_read(super, 0, 1);
 
-    block_bmp = malloc(sizeof(*block_bmp));
-    memset(block_bmp, 0, sizeof(*block_bmp));
-    inode_bmp = malloc(sizeof(*inode_bmp));
-    memset(inode_bmp, 0, sizeof(*inode_bmp));
-
+    block_bmp = calloc(BLOCK_SIZE, sizeof(BLOCK_SIZE));
+    
     /* Read block bitmap into block_bmp */
     block_read(block_bmp, 1, super->blk_map_len);
-
+    
+    inode_bmp = calloc(BLOCK_SIZE, sizeof(BLOCK_SIZE));
+    
     /* Read inode bitmap into inode_bmp */
     block_read(inode_bmp, 1 + super->blk_map_len, super->in_map_len);
 
@@ -207,8 +205,7 @@ void *lab3_init(struct fuse_conn_info *conn, struct fuse_config *cfg) {
     int inodes_in_blk = BLOCK_SIZE / sizeof(struct fs_inode);
     inode_count = super->inodes_len * inodes_in_blk;
 
-    inode_tbl = malloc(inode_count * sizeof(struct fs_inode));
-    memset(inode_tbl, 0, sizeof(inode_count * sizeof(struct fs_inode)));
+    inode_tbl = calloc(inode_count * sizeof(struct fs_inode), sizeof(struct fs_inode));
 
     block_read(inode_tbl, inode_region_blk, super->inodes_len);
 
