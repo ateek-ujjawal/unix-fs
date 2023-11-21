@@ -29,6 +29,9 @@ uint32_t inode_count;
 uint32_t inode_region_blk;
 int32_t data_blk;
 
+#define MAX_ENTRIES (BLOCK_SIZE / sizeof(struct fs_dirent))
+#define MAX_BLKS_IN_BLK (BLOCK_SIZE / sizeof(int32_t))
+
 /* disk access. All access is in terms of 4KB blocks; read and
  * write functions return 0 (success) or -EIO.
  */
@@ -86,10 +89,9 @@ uint32_t search_dir(const char *dir_name, int32_t block) {
         return 0;
     }
 
-    int max_entries = BLOCK_SIZE / sizeof(struct fs_dirent);
-    struct fs_dirent *dirs = calloc(max_entries, sizeof(struct fs_dirent));
+    struct fs_dirent *dirs = calloc(MAX_ENTRIES, sizeof(struct fs_dirent));
     block_read(dirs, block, 1);
-    for (int j = 0; j < max_entries; j++) {
+    for (int j = 0; j < MAX_ENTRIES; j++) {
         struct fs_dirent *dir_entry = dirs + j;
         if (dir_entry->valid && !strcmp(dir_name, dir_entry->name)) {
             return dir_entry->inode;
@@ -97,6 +99,10 @@ uint32_t search_dir(const char *dir_name, int32_t block) {
     }
 
     return 0;
+}
+
+int is_dir(struct fs_inode *inode) {
+    return inode->mode >> 14 & 1;
 }
 
 int _getinodeno(const char *path, uint32_t *inode_no) {
@@ -110,10 +116,8 @@ int _getinodeno(const char *path, uint32_t *inode_no) {
     while (i < n_tokens) {
         struct fs_inode *inode = inode_tbl + *inode_no; // get inode
 
-        int is_dir = inode->mode >> 14 & 1;
-
         // if current inode is for a file, it's a wrong path
-        if (!is_dir) {
+        if (!is_dir(inode)) {
             return -ENOTDIR;
         }
 
@@ -135,10 +139,9 @@ int _getinodeno(const char *path, uint32_t *inode_no) {
          sizeof(struct fs_dirent))
         */
         if (!is_find && check_data_blk(inode->indir_1)) {
-            int max_blocks = BLOCK_SIZE / sizeof(int32_t);
-            int32_t *blks = calloc(max_blocks, sizeof(int32_t));
+            int32_t *blks = calloc(MAX_BLKS_IN_BLK, sizeof(int32_t));
             block_read(blks, inode->indir_1, 1);
-            for (int j = 0; j < max_blocks; j++) {
+            for (int j = 0; j < MAX_BLKS_IN_BLK; j++) {
                 uint32_t search_inode = search_dir(tokens[i], *(blks + j));
                 if (search_inode) {
                     *inode_no = search_inode;
@@ -151,15 +154,14 @@ int _getinodeno(const char *path, uint32_t *inode_no) {
 
         // search in double indirect pointer
         if (!is_find && check_data_blk(inode->indir_2)) {
-            int max_blocks = BLOCK_SIZE / sizeof(int32_t);
-            int32_t *blks_1 = calloc(max_blocks, sizeof(int32_t));
+            int32_t *blks_1 = calloc(MAX_BLKS_IN_BLK, sizeof(int32_t));
             block_read(blks_1, inode->indir_2, 1);
-            for (int j = 0; j < max_blocks && !is_find; j++) {
+            for (int j = 0; j < MAX_BLKS_IN_BLK && !is_find; j++) {
                 int32_t blks_2 = *(blks_1 + j);
                 if (check_data_blk(blks_2)) {
-                    int32_t *blks = calloc(max_blocks, sizeof(int32_t));
+                    int32_t *blks = calloc(MAX_BLKS_IN_BLK, sizeof(int32_t));
                     block_read(blks, blks_2, 1);
-                    for (int k = 0; k < max_blocks; k++) {
+                    for (int k = 0; k < MAX_BLKS_IN_BLK; k++) {
                         uint32_t search_inode =
                             search_dir(tokens[i], *(blks + k));
                         if (search_inode) {
@@ -242,9 +244,11 @@ void *lab3_init(struct fuse_conn_info *conn, struct fuse_config *cfg) {
 }
 
 int lab3_getattr(const char *path, struct stat *sb, struct fuse_file_info *fi) {
-	uint32_t *inode_no = (uint32_t *)1; // initially, starts from root dir
+	uint32_t *inode_no = malloc(sizeof(uint32_t)); 
+	*inode_no = 1; // initially, starts from root dir
+    int res = _getinodeno(path, inode_no);
     // _getinodeno = -ENOENT or -ENOTDIR
-    if (_getinodeno(path, inode_no) < 0) {
+    if (res < 0) {
         return res;
     }
 
@@ -309,6 +313,76 @@ loop:
     */
 }
 
+
+
+typedef int (*fuse_fill_dir_t) (void *ptr, const char *name,
+                                const struct stat *stbuf, off_t off,
+                                enum fuse_fill_dir_flags flags);
+
+void *read_blk_dir(void *ptr, fuse_fill_dir_t filler, int32_t block) {
+    if (!check_data_blk(block)) {
+        return NULL;
+    }
+    
+    struct fs_dirent *dirs = calloc(MAX_ENTRIES, sizeof(struct fs_dirent));
+    block_read(dirs, block, 1);
+    for (int j = 0; j < MAX_ENTRIES; j++) {
+        struct fs_dirent *dir_entry = dirs + j;
+        if (dir_entry->valid) {
+            filler(ptr, dir_entry->name, NULL, 0, 0);            
+        }
+    }
+
+    return NULL;
+}
+
+int lab3_readdir(const char *path, void *ptr, fuse_fill_dir_t filler, off_t offset, 
+                 struct fuse_file_info *fi, enum fuse_readdir_flags flags) {
+	uint32_t *inode_no = malloc(sizeof(uint32_t)); 
+	*inode_no = 1; // initially, starts from root dir
+    int res = _getinodeno(path, inode_no);
+    if (res < 0) {
+        return res;
+    }
+
+    struct fs_inode *inode = inode_tbl + *inode_no;
+    if (!is_dir(inode)) {
+        return -ENOTDIR;
+    } 
+
+    // read direct pointers
+    for (int i = 0; i < N_DIRECT; i++) {
+        read_blk_dir(ptr, filler, inode->ptrs[i]);
+    }
+
+    // read indirect pointer
+    if (check_data_blk(inode->indir_1)) {
+        int32_t *blks = calloc(MAX_BLKS_IN_BLK, sizeof(int32_t));
+        block_read(blks, inode->indir_1, 1);
+        for (int j = 0; j < MAX_BLKS_IN_BLK; j++) {
+            read_blk_dir(ptr, filler, *(blks + j));    
+        }
+    }
+
+    // read double indirect pointer
+    if (check_data_blk(inode->indir_2)) {
+        int32_t *blks_1 = calloc(MAX_BLKS_IN_BLK, sizeof(int32_t));
+        block_read(blks_1, inode->indir_2, 1);
+        for (int j = 0; j < MAX_BLKS_IN_BLK; j++) {
+            int32_t blks_2 = *(blks_1 + j);
+            if (check_data_blk(blks_2)) {
+                int32_t *blks = calloc(MAX_BLKS_IN_BLK, sizeof(int32_t));
+                block_read(blks, blks_2, 1);
+                for (int k = 0; k < MAX_BLKS_IN_BLK; k++) {
+                    read_blk_dir(ptr, filler, *(blks + k));
+                }
+            }
+        }
+    }
+
+    return 0;
+}
+
 /* for read-only version you need to implement:
  * - lab3_init
  * - lab3_getattr
@@ -330,8 +404,9 @@ loop:
  * uncomment fields as you implement them.
  */
 struct fuse_operations fs_ops = {
-    .init = lab3_init, .getattr = lab3_getattr,
-    //    .readdir = lab3_readdir,
+    .init = lab3_init, 
+    .getattr = lab3_getattr,
+    .readdir = lab3_readdir,
     //    .read = lab3_read,
 
     //    .create = lab3_create,
