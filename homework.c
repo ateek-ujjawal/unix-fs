@@ -30,7 +30,7 @@ uint32_t inode_region_blk;
 int32_t data_blk;
 
 #define MAX_ENTRIES (BLOCK_SIZE / sizeof(struct fs_dirent))
-#define MAX_BLKS_IN_BLK (BLOCK_SIZE / sizeof(int32_t))
+#define MAX_BLKS_IN_BLK (BLOCK_SIZE / sizeof(uint32_t))
 
 /* disk access. All access is in terms of 4KB blocks; read and
  * write functions return 0 (success) or -EIO.
@@ -77,7 +77,7 @@ void inode_2_stat(struct stat *sb, struct fs_inode *in) {
 
 // check the block is located at data blocks region and in use
 int check_data_blk(int32_t blk) {
-    if (blk >= data_blk && bit_test(block_bmp, blk)) {
+    if (blk >= data_blk /*&& bit_test(block_bmp, blk)*/) {
         return 1;
     }
 
@@ -85,6 +85,7 @@ int check_data_blk(int32_t blk) {
 }
 
 uint32_t search_dir(const char *dir_name, int32_t block) {
+	
     if (!check_data_blk(block)) {
         return 0;
     }
@@ -154,12 +155,12 @@ int _getinodeno(const char *path, uint32_t *inode_no) {
 
         // search in double indirect pointer
         if (!is_find && check_data_blk(inode->indir_2)) {
-            int32_t *blks_1 = calloc(MAX_BLKS_IN_BLK, sizeof(int32_t));
+            uint32_t *blks_1 = calloc(MAX_BLKS_IN_BLK, sizeof(uint32_t));
             block_read(blks_1, inode->indir_2, 1);
             for (int j = 0; j < MAX_BLKS_IN_BLK && !is_find; j++) {
-                int32_t blks_2 = *(blks_1 + j);
+                uint32_t blks_2 = *(blks_1 + j);
                 if (check_data_blk(blks_2)) {
-                    int32_t *blks = calloc(MAX_BLKS_IN_BLK, sizeof(int32_t));
+                    uint32_t *blks = calloc(MAX_BLKS_IN_BLK, sizeof(uint32_t));
                     block_read(blks, blks_2, 1);
                     for (int k = 0; k < MAX_BLKS_IN_BLK; k++) {
                         uint32_t search_inode =
@@ -383,6 +384,132 @@ int lab3_readdir(const char *path, void *ptr, fuse_fill_dir_t filler, off_t offs
     return 0;
 }
 
+char *read_blk_file(uint32_t blk) {
+    if (!check_data_blk(blk)) {
+        return NULL;
+    }
+    
+    char *buf = calloc(BLOCK_SIZE, sizeof(*buf));
+    block_read(buf, blk, 1);
+    
+    return buf;
+}
+
+char *get_file(struct fs_inode *inode) {
+    char *start, *buffer, *blk;
+    
+    buffer = calloc(BLOCK_SIZE, sizeof(char));
+    start = buffer;
+
+    //Read direct pointer block data into buffer
+    for (int i = 0; i < N_DIRECT; i++) {
+    	blk = read_blk_file(inode->ptrs[i]);
+    	if(blk != NULL) {
+    	    memset(buffer, 0, BLOCK_SIZE);
+    	    memcpy(buffer, blk, BLOCK_SIZE);  	    	
+    	    buffer = buffer + BLOCK_SIZE;
+    	}    
+    }
+   
+   
+    
+    //Read indirect pointer block data into buffer
+    if (check_data_blk(inode->indir_1)) {
+        uint32_t *blks = calloc(MAX_BLKS_IN_BLK, sizeof(uint32_t));
+        block_read(blks, inode->indir_1, 1);
+        for (int j = 0; j < MAX_BLKS_IN_BLK; j++) {
+            uint32_t blk_i = *(blks + j);
+            blk = read_blk_file(*(blks + j));   
+            if (blk != NULL) {
+                memset(buffer, 0, BLOCK_SIZE);
+            	memcpy(buffer, blk, BLOCK_SIZE);         	
+    	    	buffer = buffer + BLOCK_SIZE;
+    	    }
+        }
+    }
+    
+    //Read double indirect pointer block data into buffer;
+    if (check_data_blk(inode->indir_2)) {
+        uint32_t *blks_1 = calloc(MAX_BLKS_IN_BLK, sizeof(uint32_t));
+        block_read(blks_1, inode->indir_2, 1);
+        for (int j = 0; j < MAX_BLKS_IN_BLK; j++) {
+            uint32_t blks_2 = *(blks_1 + j);
+            if (check_data_blk(blks_2)) {
+                uint32_t *blks = calloc(MAX_BLKS_IN_BLK, sizeof(uint32_t));
+                block_read(blks, blks_2, 1);
+                for (int k = 0; k < MAX_BLKS_IN_BLK; k++) {
+		    blk = read_blk_file(*(blks + k));
+		    if (buffer != NULL) {
+    	    		memset(buffer, 0, BLOCK_SIZE);
+		    	memcpy(buffer, blk, BLOCK_SIZE);	
+		    	buffer = buffer + BLOCK_SIZE;
+		    }
+                }
+            }
+        }
+    }
+    
+    return start;
+}
+
+int lab3_read(const char *path, char *buf, size_t len, off_t offset, 
+              struct fuse_file_info *fi) {
+    uint32_t *inode_no = malloc(sizeof(uint32_t)); 
+    *inode_no = 1; // initially, starts from root dir
+    int res = _getinodeno(path, inode_no);
+    if (res < 0) {
+        return res;
+    }
+    
+    struct fs_inode *inode = inode_tbl + *inode_no;
+    if(is_dir(inode)) {
+        return -EISDIR;
+    }
+    
+    fprintf(stdout, "size: %d\n", inode->size);
+    
+    for(int i = 0; i < N_DIRECT; i++)
+    	fprintf(stdout, "block %d: %d\n", i, inode->ptrs[i]);
+    	
+    if (check_data_blk(inode->indir_1)) {
+        uint32_t *blks = calloc(MAX_BLKS_IN_BLK, sizeof(uint32_t));
+        block_read(blks, inode->indir_1, 1);
+        for (int j = 0; j < MAX_BLKS_IN_BLK; j++) {
+    	    fprintf(stdout, "block: %d\n", *(blks + j));
+        }
+    }
+    
+    if (check_data_blk(inode->indir_2)) {
+        uint32_t *blks_1 = calloc(MAX_BLKS_IN_BLK, sizeof(uint32_t));
+        block_read(blks_1, inode->indir_2, 1);
+        for (int j = 0; j < MAX_BLKS_IN_BLK; j++) {
+            uint32_t blks_2 = *(blks_1 + j);
+            if (check_data_blk(blks_2)) {
+                uint32_t *blks = calloc(MAX_BLKS_IN_BLK, sizeof(uint32_t));
+                block_read(blks, blks_2, 1);
+                for (int k = 0; k < MAX_BLKS_IN_BLK; k++) {
+    	    	    fprintf(stdout, "block: %d\n", *(blks + k));
+                }
+            }
+        }
+    }
+    
+    int bytes_to_copy = inode->size;
+    if(offset + len < inode->size) {
+    	bytes_to_copy = len;
+    }
+   
+    /* Read entire file into file_bytes */
+    char *file_bytes = get_file(inode);
+    
+    /* Read from file_bytes into buffer */
+    for(int i = 0; i < bytes_to_copy - offset; i++) {
+    	buf[i] = file_bytes[i + offset];
+    }
+
+    return bytes_to_copy - offset;
+}
+
 /* for read-only version you need to implement:
  * - lab3_init
  * - lab3_getattr
@@ -407,7 +534,7 @@ struct fuse_operations fs_ops = {
     .init = lab3_init, 
     .getattr = lab3_getattr,
     .readdir = lab3_readdir,
-    //    .read = lab3_read,
+    .read = lab3_read,
 
     //    .create = lab3_create,
     //    .mkdir = lab3_mkdir,
