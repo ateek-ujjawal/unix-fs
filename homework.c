@@ -41,7 +41,9 @@ extern int block_write(void *buf, int blknum, int nblks);
 
 /* how many buckets of size M do you need to hold N items?
  */
-int div_round_up(int n, int m) { return (n + m - 1) / m; }
+int div_round_up(int n, int m) {
+    return (n + m - 1) / m;
+}
 
 /* quick and dirty function to split an absolute path (i.e. begins with "/")
  * uses the same interface as the command line parser in Lab 1
@@ -182,12 +184,12 @@ void *lab3_init(struct fuse_conn_info *conn, struct fuse_config *cfg) {
     block_read(super, 0, 1);
 
     block_bmp = calloc(BLOCK_SIZE * super->blk_map_len, sizeof(unsigned char));
-    
+
     /* Read block bitmap into block_bmp */
     block_read(block_bmp, 1, super->blk_map_len);
-    
+
     inode_bmp = calloc(BLOCK_SIZE * super->in_map_len, sizeof(unsigned char));
-    
+
     /* Read inode bitmap into inode_bmp */
     block_read(inode_bmp, 1 + super->blk_map_len, super->in_map_len);
 
@@ -235,12 +237,12 @@ void *lab3_init(struct fuse_conn_info *conn, struct fuse_config *cfg) {
 int lab3_getattr(const char *path, struct stat *sb, struct fuse_file_info *fi) {
     uint32_t *inode_no = malloc(sizeof(uint32_t));
     *inode_no = 1; // initially, starts from root dir
-    
+
     /* Read tokens from path through parser */
     char *tokens[MAX_TOKENS], linebuf[1024];
     int n_tokens =
         split_path(path, MAX_TOKENS, tokens, linebuf, sizeof(linebuf));
-        
+
     int res = _getinodeno(n_tokens, tokens, inode_no);
     if (res < 0) {
         return res;
@@ -307,8 +309,6 @@ loop:
     */
 }
 
-
-
 typedef int (*fuse_fill_dir_t) (void *ptr, const char *name,
                                 const struct stat *stbuf, off_t off,
                                 enum fuse_fill_dir_flags flags);
@@ -317,28 +317,29 @@ void *read_blk_dir(void *ptr, fuse_fill_dir_t filler, int32_t block) {
     if (!check_data_blk(block)) {
         return NULL;
     }
-    
+
     struct fs_dirent *dirs = calloc(MAX_ENTRIES, sizeof(struct fs_dirent));
     block_read(dirs, block, 1);
     for (int j = 0; j < MAX_ENTRIES; j++) {
         struct fs_dirent *dir_entry = dirs + j;
         if (dir_entry->valid) {
-            filler(ptr, dir_entry->name, NULL, 0, 0);            
+            filler(ptr, dir_entry->name, NULL, 0, 0);
         }
     }
 
     return NULL;
 }
 
-int lab3_readdir(const char *path, void *ptr, fuse_fill_dir_t filler, off_t offset, 
-                 struct fuse_file_info *fi, enum fuse_readdir_flags flags) {
-	uint32_t *inode_no = malloc(sizeof(uint32_t)); 
-	*inode_no = 1; // initially, starts from root dir
+int lab3_readdir(const char *path, void *ptr, fuse_fill_dir_t filler,
+                 off_t offset, struct fuse_file_info *fi,
+                 enum fuse_readdir_flags flags) {
+    uint32_t *inode_no = malloc(sizeof(uint32_t));
+    *inode_no = 1; // initially, starts from root dir
     /* Read tokens from path through parser */
     char *tokens[MAX_TOKENS], linebuf[1024];
     int n_tokens =
         split_path(path, MAX_TOKENS, tokens, linebuf, sizeof(linebuf));
-        
+
     int res = _getinodeno(n_tokens, tokens, inode_no);
     if (res < 0) {
         return res;
@@ -347,7 +348,7 @@ int lab3_readdir(const char *path, void *ptr, fuse_fill_dir_t filler, off_t offs
     struct fs_inode *inode = inode_tbl + *inode_no;
     if (!is_dir(inode)) {
         return -ENOTDIR;
-    } 
+    }
 
     // read direct pointers
     for (int i = 0; i < N_DIRECT; i++) {
@@ -359,7 +360,7 @@ int lab3_readdir(const char *path, void *ptr, fuse_fill_dir_t filler, off_t offs
         int32_t *blks = calloc(MAX_BLKS_IN_BLK, sizeof(int32_t));
         block_read(blks, inode->indir_1, 1);
         for (int j = 0; j < MAX_BLKS_IN_BLK; j++) {
-            read_blk_dir(ptr, filler, *(blks + j));    
+            read_blk_dir(ptr, filler, *(blks + j));
         }
     }
 
@@ -386,44 +387,44 @@ char *read_blk_file(uint32_t blk) {
     if (!check_data_blk(blk)) {
         return NULL;
     }
-    
+
     char *buf = calloc(BLOCK_SIZE, sizeof(*buf));
     block_read(buf, blk, 1);
-    
+
     return buf;
 }
 
 char *get_file(struct fs_inode *inode) {
     char *start, *buffer, *blk;
-    
+
     buffer = calloc(BLOCK_SIZE, inode->size);
     start = buffer;
 
-    //Read direct pointer block data into buffer
+    // Read direct pointer block data into buffer
     for (int i = 0; i < N_DIRECT; i++) {
-    	blk = read_blk_file(inode->ptrs[i]);
-    	if(blk != NULL) {
-    	    memset(buffer, 0, BLOCK_SIZE);
-    	    memcpy(buffer, blk, BLOCK_SIZE);  	    	
-    	    buffer = buffer + BLOCK_SIZE;
-    	}    
+        blk = read_blk_file(inode->ptrs[i]);
+        if (blk != NULL) {
+            memset(buffer, 0, BLOCK_SIZE);
+            memcpy(buffer, blk, BLOCK_SIZE);
+            buffer = buffer + BLOCK_SIZE;
+        }
     }
-    
-    //Read indirect pointer block data into buffer
+
+    // Read indirect pointer block data into buffer
     if (check_data_blk(inode->indir_1)) {
         uint32_t *blks = calloc(MAX_BLKS_IN_BLK, sizeof(*blks));
         block_read(blks, inode->indir_1, 1);
         for (int j = 0; j < MAX_BLKS_IN_BLK; j++) {
-    	    blk = read_blk_file(*(blks + j));
+            blk = read_blk_file(*(blks + j));
             if (blk != NULL) {
                 memset(buffer, 0, BLOCK_SIZE);
-            	memcpy(buffer, blk, BLOCK_SIZE);         	
-    	    	buffer = buffer + BLOCK_SIZE;
-    	    }
+                memcpy(buffer, blk, BLOCK_SIZE);
+                buffer = buffer + BLOCK_SIZE;
+            }
         }
     }
-    
-    //Read double indirect pointer block data into buffer;
+
+    // Read double indirect pointer block data into buffer;
     if (check_data_blk(inode->indir_2)) {
         uint32_t *blks_1 = calloc(MAX_BLKS_IN_BLK, sizeof(*blks_1));
         block_read(blks_1, inode->indir_2, 1);
@@ -433,51 +434,52 @@ char *get_file(struct fs_inode *inode) {
                 uint32_t *blks = calloc(MAX_BLKS_IN_BLK, sizeof(*blks));
                 block_read(blks, blks_2, 1);
                 for (int k = 0; k < MAX_BLKS_IN_BLK; k++) {
-		    blk = read_blk_file(*(blks + k));
-		    if (blk != NULL) {
-    	    		memset(buffer, 0, BLOCK_SIZE);
-		    	memcpy(buffer, blk, BLOCK_SIZE);	
-		    	buffer = buffer + BLOCK_SIZE;
-		    }
+                    blk = read_blk_file(*(blks + k));
+                    if (blk != NULL) {
+                        memset(buffer, 0, BLOCK_SIZE);
+                        memcpy(buffer, blk, BLOCK_SIZE);
+                        buffer = buffer + BLOCK_SIZE;
+                    }
                 }
             }
         }
     }
-    
+
     return start;
 }
 
-int lab3_read(const char *path, char *buf, size_t len, off_t offset, 
+int lab3_read(const char *path, char *buf, size_t len, off_t offset,
               struct fuse_file_info *fi) {
-    uint32_t *inode_no = malloc(sizeof(uint32_t)); 
+    uint32_t *inode_no = malloc(sizeof(uint32_t));
     *inode_no = 1; // initially, starts from root dir
     /* Read tokens from path through parser */
     char *tokens[MAX_TOKENS], linebuf[1024];
     int n_tokens =
         split_path(path, MAX_TOKENS, tokens, linebuf, sizeof(linebuf));
-        
+
     int res = _getinodeno(n_tokens, tokens, inode_no);
     if (res < 0) {
         return res;
     }
-    
+
     struct fs_inode *inode = inode_tbl + *inode_no;
-    if(is_dir(inode)) {
+    if (is_dir(inode)) {
         return -EISDIR;
     }
-    
-    /* Read len bytes from offset, if offset + len is less than file size, otherwise read till end of file */
+
+    /* Read len bytes from offset, if offset + len is less than file size,
+     * otherwise read till end of file */
     int bytes_to_copy = inode->size;
-    if(offset + len < inode->size) {
-    	bytes_to_copy = len;
+    if (offset + len < inode->size) {
+        bytes_to_copy = len;
     }
-   
+
     /* Read entire file into file_bytes */
     char *file_bytes = get_file(inode);
-    
+
     /* Read from file_bytes into buffer */
-    for(int i = 0; i < bytes_to_copy - offset; i++) {
-    	buf[i] = file_bytes[i + offset];
+    for (int i = 0; i < bytes_to_copy - offset; i++) {
+        buf[i] = file_bytes[i + offset];
     }
 
     return bytes_to_copy - offset;
@@ -504,7 +506,7 @@ int lab3_read(const char *path, char *buf, size_t len, off_t offset,
  * uncomment fields as you implement them.
  */
 struct fuse_operations fs_ops = {
-    .init = lab3_init, 
+    .init = lab3_init,
     .getattr = lab3_getattr,
     .readdir = lab3_readdir,
     .read = lab3_read,
