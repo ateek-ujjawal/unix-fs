@@ -383,7 +383,7 @@ int lab3_readdir(const char *path, void *ptr, fuse_fill_dir_t filler,
     return 0;
 }
 
-char *read_blk_file(uint32_t blk) {
+char *read_blk_file(int32_t blk) {
     if (!check_data_blk(blk)) {
         return NULL;
     }
@@ -478,11 +478,11 @@ int lab3_read(const char *path, char *buf, size_t len, off_t offset,
     char *file_bytes = get_file(inode);
 
     /* Read from file_bytes into buffer */
-    for (int i = 0; i < bytes_to_copy - offset; i++) {
+    for (int i = 0; i < bytes_to_copy; i++) {
         buf[i] = file_bytes[i + offset];
     }
 
-    return bytes_to_copy - offset;
+    return bytes_to_copy;
 }
 
 /* for read-only version you need to implement:
