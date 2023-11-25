@@ -110,6 +110,9 @@ int is_dir(struct fs_inode *inode) {
 
 int _getinodeno(int argc, char **argv, uint32_t *inode_no) {
     for (int i = 0; i < argc; i++) {
+        // illegal inode_no
+        assert(*inode_no >= 1 && *inode_no <= inode_count);
+
         struct fs_inode *inode = inode_tbl + *inode_no; // get inode
 
         // if current inode is for a file, it's a wrong path
