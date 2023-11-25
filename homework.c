@@ -104,10 +104,6 @@ uint32_t search_dir(const char *dir_name, int32_t block) {
     return 0;
 }
 
-int is_dir(struct fs_inode *inode) {
-    return inode->mode >> 14 & 1;
-}
-
 int _getinodeno(int argc, char **argv, uint32_t *inode_no) {
     for (int i = 0; i < argc; i++) {
         // illegal inode_no
@@ -116,7 +112,7 @@ int _getinodeno(int argc, char **argv, uint32_t *inode_no) {
         struct fs_inode *inode = inode_tbl + *inode_no; // get inode
 
         // if current inode is for a file, it's a wrong path
-        if (!is_dir(inode)) {
+        if (!S_ISDIR(inode->mode)) {
             return -ENOTDIR;
         }
 
@@ -349,7 +345,7 @@ int lab3_readdir(const char *path, void *ptr, fuse_fill_dir_t filler,
     }
 
     struct fs_inode *inode = inode_tbl + *inode_no;
-    if (!is_dir(inode)) {
+    if (!S_ISDIR(inode->mode)) {
         return -ENOTDIR;
     }
 
@@ -466,7 +462,7 @@ int lab3_read(const char *path, char *buf, size_t len, off_t offset,
     }
 
     struct fs_inode *inode = inode_tbl + *inode_no;
-    if (is_dir(inode)) {
+    if (S_ISDIR(inode->mode)) {
         return -EISDIR;
     }
 
