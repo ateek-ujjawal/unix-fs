@@ -80,7 +80,7 @@ void inode_2_stat(struct stat *sb, struct fs_inode *in) {
 
 // check the block is located at data blocks region and in use
 int check_data_blk(int32_t blk) {
-    if (blk >= data_blk && bit_test(block_bmp, blk)) {
+    if (blk >= data_blk && blk < super->disk_size && bit_test(block_bmp, blk)) {
         return 1;
     }
 
