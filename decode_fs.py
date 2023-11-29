@@ -70,6 +70,32 @@ def map_file(path, inum):
                     my_block_map[b] = True
                     file_blocks[path].append(b)
 
+    i2 = _in.indir_2
+    if i2 != 0:
+        if i2 < 0 or i2 >= n_blks:
+            print('ERROR: inode %d: indirect2 block %d' % (inum, i2))
+        else:
+            my_block_map[i2] = True
+            file_blocks[path].append([[i2]])
+            ind2 = lab3.indirect.from_buffer(bytearray(blocks[i2]))
+            for i1 in [ind2.ptrs[i] for i in range(256)]:
+                if i1 < 0 or i1 >= n_blks:
+                    print('ERROR: inode %d: block %d' % (inum, i1))
+                elif i1 == 0:
+                    break
+                else:
+                    my_block_map[i1] = True
+                    file_blocks[path].append([i1])
+                    ind = lab3.indirect.from_buffer(bytearray(blocks[i1]))
+                    for b in [ind.ptrs[i] for i in range(256)]:
+                        if b < 0 or b >= n_blks:
+                            print('ERROR: inode %d: block %d' % (inum, b))
+                        elif b == 0:
+                            break
+                        else:
+                            my_block_map[b] = True
+                            file_blocks[path].append(b)
+                    
 dir_blocks = dict()
 path_2_inode = dict()
 
@@ -206,7 +232,8 @@ for d in all_dirs:
 
 print('files:')
 for f in all_files:
-    print(xbytes(f), 'inode', path_2_inode[f], 'blocks:', file_blocks[f])
+    _in = inodes[path_2_inode[f]]
+    print(xbytes(f), 'inode', path_2_inode[f], 'len:', _in.size, 'blocks:', file_blocks[f])
 
 for i in range(n_blks):
     if get2(blk_bitmap2, i) != my_block_map[i]:
