@@ -468,7 +468,7 @@ int lab3_read(const char *path, char *buf, size_t len, off_t offset,
 
     /* Read len bytes from offset, if offset + len is less than file size,
      * otherwise read till end of file */
-    int bytes_to_copy = inode->size;
+    int bytes_to_copy = inode->size - offset;
     if (offset + len < inode->size) {
         bytes_to_copy = len;
     }
