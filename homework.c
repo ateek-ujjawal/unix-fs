@@ -393,54 +393,79 @@ char *read_blk_file(int32_t blk) {
     return buf;
 }
 
-char *get_file(struct fs_inode *inode) {
+char *get_file(struct fs_inode *inode, off_t offset, uint32_t bytes_to_copy) {
     char *start, *buffer, *blk;
 
     buffer = calloc(BLOCK_SIZE, inode->size);
     start = buffer;
+    uint32_t count = 0;
+    uint32_t start_block = offset / BLOCK_SIZE;
+    uint32_t end_block = (offset + bytes_to_copy) / BLOCK_SIZE;
+    
 
     // Read direct pointer block data into buffer
     for (int i = 0; i < N_DIRECT; i++) {
-        blk = read_blk_file(inode->ptrs[i]);
-        if (blk != NULL) {
-            memset(buffer, 0, BLOCK_SIZE);
-            memcpy(buffer, blk, BLOCK_SIZE);
-            buffer = buffer + BLOCK_SIZE;
+    	if (count >= start_block && count <= end_block) {
+		blk = read_blk_file(inode->ptrs[i]);
+		if (blk != NULL) {
+		    memset(buffer, 0, BLOCK_SIZE);
+		    memcpy(buffer, blk, BLOCK_SIZE);
+		    buffer = buffer + BLOCK_SIZE;
+		}
         }
+        
+        if (count > end_block) 
+        	break;
+        	
+        count++;
     }
 
     // Read indirect pointer block data into buffer
-    if (check_data_blk(inode->indir_1)) {
+    if (check_data_blk(inode->indir_1) && count <= end_block) {
         uint32_t *blks = calloc(MAX_BLKS_IN_BLK, sizeof(*blks));
         block_read(blks, inode->indir_1, 1);
         for (int j = 0; j < MAX_BLKS_IN_BLK; j++) {
-            blk = read_blk_file(*(blks + j));
-            if (blk != NULL) {
-                memset(buffer, 0, BLOCK_SIZE);
-                memcpy(buffer, blk, BLOCK_SIZE);
-                buffer = buffer + BLOCK_SIZE;
+            if (count >= start_block && count <= end_block) {
+		    blk = read_blk_file(*(blks + j));
+		    if (blk != NULL) {
+		        memset(buffer, 0, BLOCK_SIZE);
+		        memcpy(buffer, blk, BLOCK_SIZE);
+		        buffer = buffer + BLOCK_SIZE;
+		    }
             }
+            
+            if (count > end_block) 
+        	break;
+            count++;
         }
     }
 
     // Read double indirect pointer block data into buffer;
-    if (check_data_blk(inode->indir_2)) {
+    if (check_data_blk(inode->indir_2) && count <= end_block) {
         uint32_t *blks_1 = calloc(MAX_BLKS_IN_BLK, sizeof(*blks_1));
         block_read(blks_1, inode->indir_2, 1);
         for (int j = 0; j < MAX_BLKS_IN_BLK; j++) {
-            uint32_t blks_2 = *(blks_1 + j);
-            if (check_data_blk(blks_2)) {
-                uint32_t *blks = calloc(MAX_BLKS_IN_BLK, sizeof(*blks));
-                block_read(blks, blks_2, 1);
-                for (int k = 0; k < MAX_BLKS_IN_BLK; k++) {
-                    blk = read_blk_file(*(blks + k));
-                    if (blk != NULL) {
-                        memset(buffer, 0, BLOCK_SIZE);
-                        memcpy(buffer, blk, BLOCK_SIZE);
-                        buffer = buffer + BLOCK_SIZE;
-                    }
-                }
-            }
+		    uint32_t blks_2 = *(blks_1 + j);
+		    if (check_data_blk(blks_2)) {
+		        uint32_t *blks = calloc(MAX_BLKS_IN_BLK, sizeof(*blks));
+		        block_read(blks, blks_2, 1);
+		        for (int k = 0; k < MAX_BLKS_IN_BLK; k++) {
+		        	if (count >= start_block && count <= end_block) {
+					blk = read_blk_file(*(blks + k));
+				    	if (blk != NULL) {
+				  		memset(buffer, 0, BLOCK_SIZE);
+				        	memcpy(buffer, blk, BLOCK_SIZE);
+				        	buffer = buffer + BLOCK_SIZE;
+			       		}
+		       		}
+		       		
+		       		if (count > end_block) 
+        				break;
+		       		count++;
+		        }
+		    }
+            if (count > end_block) 
+        	break;
         }
     }
 
@@ -472,19 +497,21 @@ int lab3_read(const char *path, char *buf, size_t len, off_t offset,
 
     /* Read len bytes from offset, if offset + len is less than file size,
      * otherwise read till end of file */
-    int bytes_to_copy = inode->size - offset;
+    uint32_t bytes_to_copy = inode->size - offset;
     if (offset + len < inode->size) {
         bytes_to_copy = len;
     }
 
-    /* Read entire file into file_bytes */
-    char *file_bytes = get_file(inode);
+    /* Read part of file into file_bytes */
+    char *file_bytes = get_file(inode, offset, bytes_to_copy);
+    
+    uint32_t start = (offset % BLOCK_SIZE);
 
     /* Read from file_bytes into buffer */
     for (int i = 0; i < bytes_to_copy; i++) {
-        buf[i] = file_bytes[i + offset];
+        buf[i] = file_bytes[i + start];
     }
-
+    
     return bytes_to_copy;
 }
 
