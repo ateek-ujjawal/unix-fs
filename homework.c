@@ -400,23 +400,22 @@ char *get_file(struct fs_inode *inode, off_t offset, uint32_t bytes_to_copy) {
     start = buffer;
     uint32_t count = 0;
     uint32_t start_block = offset / BLOCK_SIZE;
-    uint32_t end_block = (offset + bytes_to_copy) / BLOCK_SIZE;
-    
+    uint32_t end_block = div_round_up(offset + bytes_to_copy, BLOCK_SIZE);
 
     // Read direct pointer block data into buffer
     for (int i = 0; i < N_DIRECT; i++) {
-    	if (count >= start_block && count <= end_block) {
-		blk = read_blk_file(inode->ptrs[i]);
-		if (blk != NULL) {
-		    memset(buffer, 0, BLOCK_SIZE);
-		    memcpy(buffer, blk, BLOCK_SIZE);
-		    buffer = buffer + BLOCK_SIZE;
-		}
+        if (count >= start_block && count <= end_block) {
+            blk = read_blk_file(inode->ptrs[i]);
+            if (blk != NULL) {
+                memset(buffer, 0, BLOCK_SIZE);
+                memcpy(buffer, blk, BLOCK_SIZE);
+                buffer = buffer + BLOCK_SIZE;
+            }
         }
-        
-        if (count > end_block) 
-        	break;
-        	
+
+        if (count > end_block)
+            break;
+
         count++;
     }
 
@@ -426,16 +425,16 @@ char *get_file(struct fs_inode *inode, off_t offset, uint32_t bytes_to_copy) {
         block_read(blks, inode->indir_1, 1);
         for (int j = 0; j < MAX_BLKS_IN_BLK; j++) {
             if (count >= start_block && count <= end_block) {
-		    blk = read_blk_file(*(blks + j));
-		    if (blk != NULL) {
-		        memset(buffer, 0, BLOCK_SIZE);
-		        memcpy(buffer, blk, BLOCK_SIZE);
-		        buffer = buffer + BLOCK_SIZE;
-		    }
+                blk = read_blk_file(*(blks + j));
+                if (blk != NULL) {
+                    memset(buffer, 0, BLOCK_SIZE);
+                    memcpy(buffer, blk, BLOCK_SIZE);
+                    buffer = buffer + BLOCK_SIZE;
+                }
             }
-            
-            if (count > end_block) 
-        	break;
+
+            if (count > end_block)
+                break;
             count++;
         }
     }
@@ -445,27 +444,27 @@ char *get_file(struct fs_inode *inode, off_t offset, uint32_t bytes_to_copy) {
         uint32_t *blks_1 = calloc(MAX_BLKS_IN_BLK, sizeof(*blks_1));
         block_read(blks_1, inode->indir_2, 1);
         for (int j = 0; j < MAX_BLKS_IN_BLK; j++) {
-		    uint32_t blks_2 = *(blks_1 + j);
-		    if (check_data_blk(blks_2)) {
-		        uint32_t *blks = calloc(MAX_BLKS_IN_BLK, sizeof(*blks));
-		        block_read(blks, blks_2, 1);
-		        for (int k = 0; k < MAX_BLKS_IN_BLK; k++) {
-		        	if (count >= start_block && count <= end_block) {
-					blk = read_blk_file(*(blks + k));
-				    	if (blk != NULL) {
-				  		memset(buffer, 0, BLOCK_SIZE);
-				        	memcpy(buffer, blk, BLOCK_SIZE);
-				        	buffer = buffer + BLOCK_SIZE;
-			       		}
-		       		}
-		       		
-		       		if (count > end_block) 
-        				break;
-		       		count++;
-		        }
-		    }
-            if (count > end_block) 
-        	break;
+            uint32_t blks_2 = *(blks_1 + j);
+            if (check_data_blk(blks_2)) {
+                uint32_t *blks = calloc(MAX_BLKS_IN_BLK, sizeof(*blks));
+                block_read(blks, blks_2, 1);
+                for (int k = 0; k < MAX_BLKS_IN_BLK; k++) {
+                    if (count >= start_block && count <= end_block) {
+                        blk = read_blk_file(*(blks + k));
+                        if (blk != NULL) {
+                            memset(buffer, 0, BLOCK_SIZE);
+                            memcpy(buffer, blk, BLOCK_SIZE);
+                            buffer = buffer + BLOCK_SIZE;
+                        }
+                    }
+
+                    if (count > end_block)
+                        break;
+                    count++;
+                }
+            }
+            if (count > end_block)
+                break;
         }
     }
 
@@ -504,14 +503,14 @@ int lab3_read(const char *path, char *buf, size_t len, off_t offset,
 
     /* Read part of file into file_bytes */
     char *file_bytes = get_file(inode, offset, bytes_to_copy);
-    
+
     uint32_t start = (offset % BLOCK_SIZE);
 
     /* Read from file_bytes into buffer */
     for (int i = 0; i < bytes_to_copy; i++) {
         buf[i] = file_bytes[i + start];
     }
-    
+
     return bytes_to_copy;
 }
 
