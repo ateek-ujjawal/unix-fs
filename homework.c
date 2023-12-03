@@ -135,7 +135,7 @@ void write_dir_to_inode(mode_t mode, uint32_t inode_no, uint32_t data_blk) {
 	struct fs_inode *inode = calloc(1, sizeof(struct fs_inode));
 	inode->uid = 0;
 	inode->gid = 0;
-	inode->mode = mode;
+	inode->mode = mode | S_IFDIR;
     	inode->mtime = get_usecs();
     	inode->size = BLOCK_SIZE;
     	inode->ptrs[0] = data_blk;
@@ -701,7 +701,7 @@ int lab3_mkdir(const char *path, mode_t mode) {
         return -EEXIST;
     }
     
-
+    *inode_no = 1;
     n_tokens--;
     res = _getinodeno(n_tokens, tokens, inode_no);
     
