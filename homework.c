@@ -18,6 +18,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <sys/time.h>
+#include <stdbool.h>
 
 #include "fs5600.h"
 
@@ -28,6 +30,7 @@ struct fs_inode *inode_tbl;
 uint32_t inode_count;
 uint32_t inode_region_blk;
 int32_t data_blk;
+uint32_t data_len;
 
 #define MAX_ENTRIES (BLOCK_SIZE / sizeof(struct fs_dirent))
 #define MAX_BLKS_IN_BLK (BLOCK_SIZE / sizeof(int32_t))
@@ -78,6 +81,12 @@ void inode_2_stat(struct stat *sb, struct fs_inode *in) {
     sb->st_atime = sb->st_mtime = sb->st_ctime = in->mtime;
 }
 
+unsigned long get_usecs(void) {
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
+    return tv.tv_sec * 1000000 + tv.tv_usec;
+}
+
 // check the block is located at data blocks region and in use
 int check_data_blk(int32_t blk) {
     if (blk >= data_blk && blk < super->disk_size && bit_test(block_bmp, blk)) {
@@ -85,6 +94,63 @@ int check_data_blk(int32_t blk) {
     }
 
     return 0;
+}
+
+int allocate_inode() {
+	int res = -ENOSPC;
+	/* Loop through bitmap to check for available inodes, and allocate if free */
+	for (int i = 2; i <= inode_count; i++) {
+		bool test = bit_test(inode_bmp, i);
+		if(!test) {
+			bit_set(inode_bmp, i);
+			res = i;
+			break;
+		}
+	}
+	return res;
+}
+
+int allocate_data_blk() {
+	int data_blk_start = 1 + super->blk_map_len + super->in_map_len + super->inodes_len;
+	int res = -ENOSPC;
+	/*Loop throught bitmap to check for available data blocks, and allocate if free */
+	for (int i = data_blk_start; i <= data_len; i++) {
+		bool test = bit_test(block_bmp, i);
+		if(!test) {
+			bit_set(block_bmp, i);
+			res = i;
+			break;
+		}
+	}
+	return res;
+}
+
+void write_dir_to_blk(uint32_t block) {
+	/* Write MAX_ENTRIES * sizeof(struct fs_dirent) to the given block */
+	struct fs_dirent *dirent = calloc(MAX_ENTRIES, sizeof(struct fs_dirent));
+	block_write(dirent, block, 1);
+}
+
+void write_dir_to_inode(mode_t mode, uint32_t inode_no, uint32_t data_blk) {
+	struct fs_inode *inode = calloc(1, sizeof(struct fs_inode));
+	inode->uid = 0;
+	inode->gid = 0;
+	inode->mode = mode;
+    	inode->mtime = get_usecs();
+    	inode->size = BLOCK_SIZE;
+    	inode->ptrs[0] = data_blk;
+    	struct fs_inode *location = (inode_tbl + inode_no);
+	memcpy(location, inode, sizeof(struct fs_inode));
+	block_write(inode_tbl, inode_region_blk, super->inodes_len);
+}
+
+int allocate_dirent() {
+	/* Allocates a new directory entry in a new data block */
+	int data_blk = allocate_data_blk();
+	if (data_blk < 0)
+		return data_blk;
+	write_dir_to_blk(data_blk);
+	return data_blk;
 }
 
 uint32_t search_dir(const char *dir_name, int32_t block) {
@@ -202,6 +268,7 @@ void *lab3_init(struct fuse_conn_info *conn, struct fuse_config *cfg) {
     block_read(inode_tbl, inode_region_blk, super->inodes_len);
 
     data_blk = inode_region_blk + super->inodes_len;
+    data_len = BLOCK_SIZE * super->blk_map_len;
 
     /*
     struct fs_inode inode;
@@ -514,6 +581,139 @@ int lab3_read(const char *path, char *buf, size_t len, off_t offset,
     return bytes_to_copy;
 }
 
+uint32_t write_dir_to_dirent(const char *dir_name, mode_t mode, int32_t block) {
+	if (!check_data_blk(block)) {
+		return 0;
+	}
+	int allocated_inode;
+	int allocated_data_blk;
+	
+	struct fs_dirent *dirs = calloc(MAX_ENTRIES, sizeof(struct fs_dirent));
+	block_read(dirs, block, 1);
+	for (int i = 0; i < MAX_ENTRIES; i++) {
+	    struct fs_dirent *dir_entry = dirs + i;
+	    if (!dir_entry->valid) {
+    		allocated_inode = allocate_inode();
+		allocated_data_blk = allocate_data_blk();
+		
+		if(allocated_inode < 0 || allocated_data_blk < 0)
+			return (allocated_inode < allocated_data_blk) ? allocated_inode : allocated_data_blk;
+	
+		write_dir_to_blk(allocated_data_blk);
+		write_dir_to_inode(mode, allocated_inode, allocated_data_blk);	
+		dir_entry->valid = 1;
+		dir_entry->inode = allocated_inode;
+		int j = 0;
+		while(*(dir_name + j) != '\0') {
+			dir_entry->name[j] = *(dir_name + j);
+			j++;
+		}
+		dir_entry->name[j] = '\0';
+		block_write(dirs, block, 1);
+		return allocated_inode;
+	    } 
+	}
+	
+	return 0;
+}
+
+
+int write_dir(uint32_t inode_no, char *dir_name, mode_t mode) {
+	struct fs_inode *inode = inode_tbl + inode_no;
+	uint32_t dir_inode = -ENOSPC, data_blk;
+
+	/* Write to free directory entry in direct pointers */
+	for (int i = 0; i < N_DIRECT; i++) {
+		/* If dirent not allocated, or full, allocate a new dirent */
+		if (inode->ptrs[i] == 0) {
+			data_blk = allocate_dirent();
+			inode->ptrs[i] = data_blk;
+		}
+		
+		/* Write directory to dirent */
+		dir_inode = write_dir_to_dirent(dir_name, mode, inode->ptrs[i]);
+		
+		/*Return inode of directory */
+		if (dir_inode)
+			return 0;
+	}
+	
+	/* Write to free directory entry in indirect pointers */
+	if (check_data_blk(inode->indir_1)) {
+            int32_t *blks = calloc(MAX_BLKS_IN_BLK, sizeof(int32_t));
+            block_read(blks, inode->indir_1, 1);
+            for (int i = 0; i < MAX_BLKS_IN_BLK; i++) {
+		if (*(blks + i) == 0) {
+			data_blk = allocate_dirent();
+			*(blks + i) = data_blk;
+		}
+		
+		dir_inode = write_dir_to_dirent(dir_name, mode, *(blks + i));
+		
+		if (dir_inode)
+			return 0;
+            }
+        }
+        
+        /* Write to free directory entry in double indirect pointers */
+        if (check_data_blk(inode->indir_2)) {
+            int32_t *blks_1 = calloc(MAX_BLKS_IN_BLK, sizeof(int32_t));
+            block_read(blks_1, inode->indir_2, 1);
+            for (int j = 0; j < MAX_BLKS_IN_BLK; j++) {
+                int32_t blks_2 = *(blks_1 + j);
+                if (check_data_blk(blks_2)) {
+                    int32_t *blks = calloc(MAX_BLKS_IN_BLK, sizeof(int32_t));
+                    block_read(blks, blks_2, 1);
+                    for (int k = 0; k < MAX_BLKS_IN_BLK; k++) {
+			if (*(blks + k) == 0) {
+				data_blk = allocate_dirent();
+				*(blks + k) = data_blk;
+			}
+			
+			dir_inode = write_dir_to_dirent(dir_name, mode, *(blks + k));
+			
+			if (dir_inode)
+				return 0;
+                    }
+                }
+            }
+        }
+	
+	return -ENOSPC;
+
+}
+
+int lab3_mkdir(const char *path, mode_t mode) {
+    
+    if(strlen(path) > 27) {
+    	return -ENAMETOOLONG;
+    }
+    
+    uint32_t *inode_no = malloc(sizeof(uint32_t));
+    *inode_no = 1; // initially, starts from root dir
+    /* Read tokens from path through parser */
+    char *tokens[MAX_TOKENS], linebuf[1024];
+    int n_tokens =
+        split_path(path, MAX_TOKENS, tokens, linebuf, sizeof(linebuf));
+
+    int res = _getinodeno(n_tokens, tokens, inode_no);
+    if (res == 0) {
+        return -EEXIST;
+    }
+    
+
+    n_tokens--;
+    res = _getinodeno(n_tokens, tokens, inode_no);
+    
+    if (res < 0) {
+    	return res;
+    }
+    
+    res = write_dir(*inode_no, tokens[n_tokens], mode);
+    
+    return res;
+}
+
 /* for read-only version you need to implement:
  * - lab3_init
  * - lab3_getattr
@@ -539,9 +739,8 @@ struct fuse_operations fs_ops = {
     .getattr = lab3_getattr,
     .readdir = lab3_readdir,
     .read = lab3_read,
-
     //    .create = lab3_create,
-    //    .mkdir = lab3_mkdir,
+    .mkdir = lab3_mkdir,
     //    .unlink = lab3_unlink,
     //    .rmdir = lab3_rmdir,
     //    .rename = lab3_rename,
