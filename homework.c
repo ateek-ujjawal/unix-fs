@@ -527,7 +527,6 @@ uint32_t write_dir_to_dirent(const char *dir_name, mode_t mode, int32_t block) {
 		return 0;
 	}
 	int allocated_inode;
-	int allocated_data_blk;
 	
 	struct fs_dirent *dirs = calloc(MAX_ENTRIES, sizeof(struct fs_dirent));
 	block_read(dirs, block, 1);
@@ -535,12 +534,10 @@ uint32_t write_dir_to_dirent(const char *dir_name, mode_t mode, int32_t block) {
 	    struct fs_dirent *dir_entry = dirs + i;
 	    if (!dir_entry->valid) {
 			allocated_inode = allocate_inode();
-			allocated_data_blk = allocate_data_blk();
 			
-			if(allocated_inode < 0 || allocated_data_blk < 0)
-				return (allocated_inode < allocated_data_blk) ? allocated_inode : allocated_data_blk;
+			if(allocated_inode < 0)
+				return allocated_inode;
 		
-			write_dir_to_blk(allocated_data_blk);
 			write_dir_to_inode(mode, allocated_inode);	
 			dir_entry->valid = 1;
 			dir_entry->inode = allocated_inode;
