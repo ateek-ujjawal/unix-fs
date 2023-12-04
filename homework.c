@@ -96,7 +96,7 @@ int check_data_blk(int32_t blk) {
     return 0;
 }
 
-int allocate_inode() {
+uint32_t allocate_inode() {
 	/* Loop through bitmap to check for available inodes, and allocate if free */
 	for (int i = 2; i <= inode_count; i++) {
 		bool test = bit_test(inode_bmp, i);
@@ -109,7 +109,7 @@ int allocate_inode() {
 	return -ENOSPC;
 }
 
-int allocate_data_blk() {
+int32_t allocate_data_blk() {
 	int data_blk_start = 1 + super->blk_map_len + super->in_map_len + super->inodes_len;
 	/*Loop throught bitmap to check for available data blocks, and allocate if free */
 	for (int i = data_blk_start; i <= data_len; i++) {
@@ -582,49 +582,72 @@ int write_dir(uint32_t inode_no, char *dir_name, mode_t mode) {
 	}
 	
 	/* Write to free directory entry in indirect pointers */
-	if (check_data_blk(inode->indir_1)) {
-        int32_t *blks = calloc(MAX_BLKS_IN_BLK, sizeof(int32_t));
-        block_read(blks, inode->indir_1, 1);
-        for (int i = 0; i < MAX_BLKS_IN_BLK; i++) {
-			if (*(blks + i) == 0) {
+	// if indir_1 not exists, create first
+	if (!check_data_blk(inode->indir_1)) {
+		int blk_no = allocate_data_blk();
+		if (blk_no < 0) {
+			return blk_no;
+		}
+		int32_t *blks = calloc(MAX_BLKS_IN_BLK, sizeof(int32_t));
+		block_write(blks, blk_no, 1);
+		inode->indir_1 = blk_no;
+    }
+    int32_t *blks = calloc(MAX_BLKS_IN_BLK, sizeof(int32_t));
+    block_read(blks, inode->indir_1, 1);
+    for (int i = 0; i < MAX_BLKS_IN_BLK; i++) {
+		if (*(blks + i) == 0) {
+			data_blk = allocate_dirent();
+			if (data_blk < 0) {
+				return data_blk;
+			}
+			*(blks + i) = data_blk;
+		}
+		
+		dir_inode = write_dir_to_dirent(dir_name, mode, *(blks + i));
+		
+		if (dir_inode)
+			return 0;
+    }
+        
+    /* Write to free directory entry in double indirect pointers */
+    // if indir_2 not exists, create first
+    if (!check_data_blk(inode->indir_2)) {
+		int32_t blk1_no = allocate_data_blk();
+		if (blk1_no < 0) {
+			return blk1_no;
+		}
+		int32_t *blks_1 = calloc(MAX_BLKS_IN_BLK, sizeof(int32_t));
+		block_write(blks_1, blk1_no, 1);
+		inode->indir_2 = blk1_no;
+    }
+    int32_t *blks_1 = calloc(MAX_BLKS_IN_BLK, sizeof(int32_t));
+    block_read(blks_1, inode->indir_2, 1);
+    for (int j = 0; j < MAX_BLKS_IN_BLK; j++) {
+    	// if *(blks_1 + j) not exists, create first
+        if (!check_data_blk(*(blks_1 + j))) {
+        	int32_t blk2_no = allocate_data_blk();
+        	if (blk2_no < 0) {
+        		return blk2_no;
+        	}
+        	int32_t *blks_2 = calloc(MAX_BLKS_IN_BLK, sizeof(int32_t));
+        	block_write(blks_2, blk2_no, 1);
+        	*(blks_1 + j) = blk2_no;
+        }
+        int32_t *blks_2 = calloc(MAX_BLKS_IN_BLK, sizeof(int32_t));
+        block_read(blks_2, *(blks_1 + j), 1);
+        for (int k = 0; k < MAX_BLKS_IN_BLK; k++) {
+			if (*(blks_2 + k) == 0) {
 				data_blk = allocate_dirent();
 				if (data_blk < 0) {
 					return data_blk;
 				}
-				*(blks + i) = data_blk;
+				*(blks_2 + k) = data_blk;
 			}
-			
-			dir_inode = write_dir_to_dirent(dir_name, mode, *(blks + i));
-			
+
+			dir_inode = write_dir_to_dirent(dir_name, mode, *(blks_2 + k));
+	
 			if (dir_inode)
 				return 0;
-        }
-    }
-        
-    /* Write to free directory entry in double indirect pointers */
-    if (check_data_blk(inode->indir_2)) {
-        int32_t *blks_1 = calloc(MAX_BLKS_IN_BLK, sizeof(int32_t));
-        block_read(blks_1, inode->indir_2, 1);
-        for (int j = 0; j < MAX_BLKS_IN_BLK; j++) {
-            int32_t blks_2 = *(blks_1 + j);
-            if (check_data_blk(blks_2)) {
-                int32_t *blks = calloc(MAX_BLKS_IN_BLK, sizeof(int32_t));
-                block_read(blks, blks_2, 1);
-                for (int k = 0; k < MAX_BLKS_IN_BLK; k++) {
-					if (*(blks + k) == 0) {
-						data_blk = allocate_dirent();
-						if (data_blk < 0) {
-							return data_blk;
-						}
-						*(blks + k) = data_blk;
-					}
-
-					dir_inode = write_dir_to_dirent(dir_name, mode, *(blks + k));
-			
-					if (dir_inode)
-						return 0;
-                }
-            }
         }
     }
 	
@@ -640,7 +663,7 @@ int lab3_mkdir(const char *path, mode_t mode) {
     int n_tokens =
         split_path(path, MAX_TOKENS, tokens, linebuf, sizeof(linebuf));
     
-    if (strlen(tokens[n_tokens - 1] > 27) {
+    if (strlen(tokens[n_tokens - 1]) > 27) {
     	return -ENAMETOOLONG;
     }
 
