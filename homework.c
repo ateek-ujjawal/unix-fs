@@ -572,6 +572,7 @@ int create(uint32_t inode_no, char *dir_name, mode_t mode) {
             if (data_blk < 0) {
                 return data_blk;
             }
+            inode->size += BLOCK_SIZE;
             inode->ptrs[i] = data_blk;
         }
 
@@ -602,6 +603,7 @@ int create(uint32_t inode_no, char *dir_name, mode_t mode) {
             if (data_blk < 0) {
                 return data_blk;
             }
+            inode->size += BLOCK_SIZE;
             *(blks + i) = data_blk;
         }
 
@@ -643,6 +645,7 @@ int create(uint32_t inode_no, char *dir_name, mode_t mode) {
                 if (data_blk < 0) {
                     return data_blk;
                 }
+                inode->size += BLOCK_SIZE;
                 *(blks_2 + k) = data_blk;
             }
 
