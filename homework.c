@@ -99,7 +99,7 @@ int check_data_blk(int32_t blk) {
 uint32_t allocate_inode() {
     /* Loop through bitmap to check for available inodes, and allocate if free
      */
-    for (int i = 2; i <= inode_count; i++) {
+    for (int i = 2; i < inode_count; i++) {
         bool test = bit_test(inode_bmp, i);
         if (!test) {
             bit_set(inode_bmp, i);
@@ -132,14 +132,14 @@ void write_dir_to_blk(uint32_t block) {
     block_write(dirent, block, 1);
 }
 
-void write_dir_to_inode(mode_t mode, uint32_t inode_no) {
-    assert(inode_no > 1 && inode_no <= inode_count);
+void write_inode(mode_t mode, uint32_t inode_no) {
+    assert(inode_no > 1 && inode_no < inode_count);
     struct fs_inode *inode = calloc(1, sizeof(struct fs_inode));
     inode->uid = 0;
     inode->gid = 0;
-    inode->mode = mode | S_IFDIR;
+    inode->mode = mode;
     inode->mtime = get_usecs();
-    inode->size = BLOCK_SIZE;
+    inode->size = 0;
     struct fs_inode *location = (inode_tbl + inode_no);
     memcpy(location, inode, sizeof(struct fs_inode));
     block_write(inode_tbl, inode_region_blk, super->inodes_len);
@@ -200,7 +200,7 @@ uint32_t remove_dir(const char *dir_name, int32_t block) {
 int _getinodeno(int argc, char **argv, uint32_t *inode_no) {
     for (int i = 0; i < argc; i++) {
         // illegal inode_no
-        assert(*inode_no >= 1 && *inode_no <= inode_count);
+        assert(*inode_no >= 1 && *inode_no < inode_count);
 
         struct fs_inode *inode = inode_tbl + *inode_no; // get inode
 
@@ -525,7 +525,7 @@ int lab3_read(const char *path, char *buf, size_t len, off_t offset,
     return bytes_to_copy;
 }
 
-uint32_t write_dir_to_dirent(const char *dir_name, mode_t mode, int32_t block) {
+uint32_t write_to_dirent(const char *dir_name, mode_t mode, int32_t block) {
     if (!check_data_blk(block)) {
         return 0;
     }
@@ -541,7 +541,7 @@ uint32_t write_dir_to_dirent(const char *dir_name, mode_t mode, int32_t block) {
             if (allocated_inode < 0)
                 return allocated_inode;
 
-            write_dir_to_inode(mode, allocated_inode);
+            write_inode(mode, allocated_inode);
             dir_entry->valid = 1;
             dir_entry->inode = allocated_inode;
             int j = 0;
@@ -558,8 +558,8 @@ uint32_t write_dir_to_dirent(const char *dir_name, mode_t mode, int32_t block) {
     return 0;
 }
 
-int write_dir(uint32_t inode_no, char *dir_name, mode_t mode) {
-    assert(inode_no >= 1 && inode_no <= inode_count);
+int create(uint32_t inode_no, char *dir_name, mode_t mode) {
+    assert(inode_no >= 1 && inode_no < inode_count);
 
     struct fs_inode *inode = inode_tbl + inode_no;
     uint32_t dir_inode = 0, data_blk;
@@ -576,7 +576,7 @@ int write_dir(uint32_t inode_no, char *dir_name, mode_t mode) {
         }
 
         /* Write directory to dirent */
-        dir_inode = write_dir_to_dirent(dir_name, mode, inode->ptrs[i]);
+        dir_inode = write_to_dirent(dir_name, mode, inode->ptrs[i]);
 
         /*Return inode of directory */
         if (dir_inode)
@@ -605,7 +605,7 @@ int write_dir(uint32_t inode_no, char *dir_name, mode_t mode) {
             *(blks + i) = data_blk;
         }
 
-        dir_inode = write_dir_to_dirent(dir_name, mode, *(blks + i));
+        dir_inode = write_to_dirent(dir_name, mode, *(blks + i));
 
         if (dir_inode)
             return 0;
@@ -646,7 +646,7 @@ int write_dir(uint32_t inode_no, char *dir_name, mode_t mode) {
                 *(blks_2 + k) = data_blk;
             }
 
-            dir_inode = write_dir_to_dirent(dir_name, mode, *(blks_2 + k));
+            dir_inode = write_to_dirent(dir_name, mode, *(blks_2 + k));
 
             if (dir_inode)
                 return 0;
@@ -681,7 +681,11 @@ int lab3_mkdir(const char *path, mode_t mode) {
         return res;
     }
 
-    res = write_dir(*inode_no, tokens[n_tokens], mode);
+    res = create(*inode_no, tokens[n_tokens], mode | S_IFDIR);
+    
+    if (res < 0) {
+    	return res;
+   	}
 
     return res;
 }
@@ -827,6 +831,39 @@ int lab3_rmdir(const char *path) {
     return 0;
 }
 
+int lab3_create(const char *path, mode_t mode, struct fuse_file_info *fi) {
+    uint32_t *inode_no = malloc(sizeof(uint32_t));
+    *inode_no = 1; // initially, starts from root dir
+    /* Read tokens from path through parser */
+    char *tokens[MAX_TOKENS], linebuf[1024];
+    int n_tokens =
+        split_path(path, MAX_TOKENS, tokens, linebuf, sizeof(linebuf));
+    
+    if (strlen(tokens[n_tokens - 1]) > 27) {
+        return -ENAMETOOLONG;
+    }
+    
+    int res = _getinodeno(n_tokens, tokens, inode_no);
+    if (res == 0) {
+    	return -EEXIST;
+    }
+    
+    *inode_no = 1;
+    n_tokens--;
+    res = _getinodeno(n_tokens, tokens, inode_no);
+    
+    if (res < 0) {
+    	return res;
+    }
+    
+    struct fs_inode *inode = inode_tbl + *inode_no;
+    if (!S_ISDIR(inode->mode)) {
+    	return -ENOTDIR;
+    }
+    
+    return create(*inode_no, tokens[n_tokens], mode | S_IFREG);
+}
+
 /* for read-only version you need to implement:
  * - lab3_init
  * - lab3_getattr
@@ -852,7 +889,7 @@ struct fuse_operations fs_ops = {
     .getattr = lab3_getattr,
     .readdir = lab3_readdir,
     .read = lab3_read,
-    //    .create = lab3_create,
+    .create = lab3_create,
     .mkdir = lab3_mkdir,
     //    .unlink = lab3_unlink,
     .rmdir = lab3_rmdir,
