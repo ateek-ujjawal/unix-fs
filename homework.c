@@ -181,7 +181,7 @@ uint32_t remove_dir(const char *dir_name, int32_t block) {
     for (int j = 0; j < MAX_ENTRIES; j++) {
         struct fs_dirent *dir_entry = dirs + j;
         if (dir_entry->valid && !strcmp(dir_name, dir_entry->name)) {
-            dir_entry->valid = 0;
+            memset(dir_entry, 0, sizeof(struct fs_dirent));
             block_write(dirs, block, 1);
 
             for (int k = 0; k < MAX_ENTRIES; k++) {
@@ -789,10 +789,6 @@ int remove_from_dirent(uint32_t inode_no, char *name) {
 }
 
 int lab3_rmdir(const char *path) {
-    if (strlen(path) > 27) {
-        return -ENAMETOOLONG;
-    }
-
     uint32_t *inode_no = malloc(sizeof(uint32_t));
     *inode_no = 1; // initially, starts from root dir
     /* Read tokens from path through parser */
@@ -800,9 +796,18 @@ int lab3_rmdir(const char *path) {
     int n_tokens =
         split_path(path, MAX_TOKENS, tokens, linebuf, sizeof(linebuf));
 
+    if (strlen(tokens[n_tokens - 1]) > 27) {
+        return -ENAMETOOLONG;
+    }
+
     int res = _getinodeno(n_tokens, tokens, inode_no);
     if (res < 0)
         return res;
+    
+    struct fs_inode *inode = inode_tbl + *inode_no;
+    if (!S_ISDIR(inode->mode)) {
+    	return -ENOTDIR;
+    }
 
     res = check_if_empty(*inode_no);
     if (res < 0)
