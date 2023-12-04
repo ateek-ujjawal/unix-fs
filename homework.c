@@ -570,6 +570,9 @@ int write_dir(uint32_t inode_no, char *dir_name, mode_t mode) {
 		/* If dirent not allocated, or full, allocate a new dirent */
 		if (inode->ptrs[i] == 0) {
 			data_blk = allocate_dirent();
+			if (data_blk < 0) {
+				return data_blk;
+			}
 			inode->ptrs[i] = data_blk;
 		}
 		
@@ -588,6 +591,9 @@ int write_dir(uint32_t inode_no, char *dir_name, mode_t mode) {
         for (int i = 0; i < MAX_BLKS_IN_BLK; i++) {
 			if (*(blks + i) == 0) {
 				data_blk = allocate_dirent();
+				if (data_blk < 0) {
+					return data_blk;
+				}
 				*(blks + i) = data_blk;
 			}
 			
@@ -610,6 +616,9 @@ int write_dir(uint32_t inode_no, char *dir_name, mode_t mode) {
                 for (int k = 0; k < MAX_BLKS_IN_BLK; k++) {
 					if (*(blks + k) == 0) {
 						data_blk = allocate_dirent();
+						if (data_blk < 0) {
+							return data_blk;
+						}
 						*(blks + k) = data_blk;
 					}
 
