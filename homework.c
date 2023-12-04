@@ -740,6 +740,7 @@ int remove_from_dirent(uint32_t inode_no, char *name) {
             if (success == -1) {
                 bit_clear(block_bmp, inode->ptrs[i]);
                 inode->ptrs[i] = 0;
+                inode->size -= BLOCK_SIZE;
                 block_write(inode_tbl, inode_region_blk, super->inodes_len);
                 block_write(block_bmp, 1, super->blk_map_len);
                 success = 1;
@@ -757,6 +758,7 @@ int remove_from_dirent(uint32_t inode_no, char *name) {
                 if (success == -1) {
                     bit_clear(block_bmp, *(blks + i));
                     *(blks + i) = 0;
+                    inode->size -= BLOCK_SIZE;
                     block_write(inode_tbl, inode_region_blk, super->inodes_len);
                     block_write(block_bmp, 1, super->blk_map_len);
                     success = 1;
@@ -780,6 +782,7 @@ int remove_from_dirent(uint32_t inode_no, char *name) {
                         if (success == -1) {
                             bit_clear(block_bmp, *(blks + k));
                             *(blks + k) = 0;
+                            inode->size -= BLOCK_SIZE;
                             block_write(inode_tbl, inode_region_blk,
                                         super->inodes_len);
                             block_write(block_bmp, 1, super->blk_map_len);
@@ -867,6 +870,10 @@ int lab3_create(const char *path, mode_t mode, struct fuse_file_info *fi) {
     return create(*inode_no, tokens[n_tokens], mode | S_IFREG);
 }
 
+int lab3_utimens(const char *path, const struct timespec tv[2], struct fuse_file_info *fi) {
+	return 0;
+}
+
 /* for read-only version you need to implement:
  * - lab3_init
  * - lab3_getattr
@@ -900,4 +907,5 @@ struct fuse_operations fs_ops = {
     //    .chmod = lab3_chmod,
     //    .truncate = lab3_truncate,
     //    .write = lab3_write,
+    .utimens = lab3_utimens,
 };
