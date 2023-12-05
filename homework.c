@@ -903,24 +903,8 @@ int lab3_chmod(const char *path, mode_t new_mode, struct fuse_file_info *fi) {
     return 0;
 }
 
-int lab3_unlink(const char *path) {
-    uint32_t *inode_no = malloc(sizeof(uint32_t));
-    *inode_no = 1; // initially, starts from root dir
-    /* Read tokens from path through parser */
-    char *tokens[MAX_TOKENS], linebuf[1024];
-    int n_tokens =
-        split_path(path, MAX_TOKENS, tokens, linebuf, sizeof(linebuf));
-
-    int res = _getinodeno(n_tokens, tokens, inode_no);
-    if (res < 0) {
-        return res;
-    }
-
-    struct fs_inode *inode = inode_tbl + *inode_no;
-
-    if (S_ISDIR(inode->mode)) {
-        return -EISDIR;
-    }
+int free_file_blk(uint32_t inode_no) {
+	struct fs_inode *inode = inode_tbl + inode_no;
 
     // free direct pointers block
     for (int i = 0; i < N_DIRECT; i++) {
@@ -962,6 +946,30 @@ int lab3_unlink(const char *path) {
     }
 
     write_block_bmp_back();
+    
+    return 0;
+}
+
+int lab3_unlink(const char *path) {
+    uint32_t *inode_no = malloc(sizeof(uint32_t));
+    *inode_no = 1; // initially, starts from root dir
+    /* Read tokens from path through parser */
+    char *tokens[MAX_TOKENS], linebuf[1024];
+    int n_tokens =
+        split_path(path, MAX_TOKENS, tokens, linebuf, sizeof(linebuf));
+
+    int res = _getinodeno(n_tokens, tokens, inode_no);
+    if (res < 0) {
+        return res;
+    }
+
+    struct fs_inode *inode = inode_tbl + *inode_no;
+
+    if (S_ISDIR(inode->mode)) {
+        return -EISDIR;
+    }
+    
+    free_file_blk(*inode_no);
 
     // free inode no
     bit_clear(inode_bmp, *inode_no);
@@ -1100,6 +1108,37 @@ int lab3_rename(const char *src_path, const char *dst_path,
                       tokens_dst[n_tokens_src - 1], *inode_p);
 }
 
+int lab3_truncate(const char *path, off_t new_len, struct fuse_file_info *fi) {
+    uint32_t *inode_no = malloc(sizeof(uint32_t));
+    *inode_no = 1; // initially, starts from root dir
+    /* Read tokens from path through parser */
+    char *tokens[MAX_TOKENS], linebuf[1024];
+    int n_tokens =
+        split_path(path, MAX_TOKENS, tokens, linebuf, sizeof(linebuf));
+
+    int res = _getinodeno(n_tokens, tokens, inode_no);
+    if (res < 0) {
+        return res;
+    }
+    
+    struct fs_inode *inode = inode_tbl + *inode_no;
+    
+    if (S_ISDIR(inode->mode)) {
+    	return -EISDIR;
+    }
+    
+    if (new_len != 0) {
+		return -EINVAL;
+	}
+	
+    free_file_blk(*inode_no);
+    
+    inode->size = 0;
+    write_inode_bmp_back();
+    
+    return 0;
+}
+
 /* for read-only version you need to implement:
  * - lab3_init
  * - lab3_getattr
@@ -1131,7 +1170,7 @@ struct fuse_operations fs_ops = {
     .rmdir = lab3_rmdir,
     .rename = lab3_rename,
     .chmod = lab3_chmod,
-    //    .truncate = lab3_truncate,
+    .truncate = lab3_truncate,
     //    .write = lab3_write,
     .utimens = lab3_utimens,
 };
