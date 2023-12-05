@@ -904,7 +904,7 @@ int lab3_chmod(const char *path, mode_t new_mode, struct fuse_file_info *fi) {
 }
 
 int free_file_blk(uint32_t inode_no) {
-	struct fs_inode *inode = inode_tbl + inode_no;
+    struct fs_inode *inode = inode_tbl + inode_no;
 
     // free direct pointers block
     for (int i = 0; i < N_DIRECT; i++) {
@@ -946,7 +946,7 @@ int free_file_blk(uint32_t inode_no) {
     }
 
     write_block_bmp_back();
-    
+
     return 0;
 }
 
@@ -968,7 +968,7 @@ int lab3_unlink(const char *path) {
     if (S_ISDIR(inode->mode)) {
         return -EISDIR;
     }
-    
+
     free_file_blk(*inode_no);
 
     // free inode no
@@ -1120,22 +1120,22 @@ int lab3_truncate(const char *path, off_t new_len, struct fuse_file_info *fi) {
     if (res < 0) {
         return res;
     }
-    
+
     struct fs_inode *inode = inode_tbl + *inode_no;
-    
+
     if (S_ISDIR(inode->mode)) {
-    	return -EISDIR;
+        return -EISDIR;
     }
-    
+
     if (new_len != 0) {
-		return -EINVAL;
-	}
-	
+        return -EINVAL;
+    }
+
     free_file_blk(*inode_no);
-    
+
     inode->size = 0;
     write_inode_bmp_back();
-    
+
     return 0;
 }
 
