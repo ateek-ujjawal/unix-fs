@@ -132,7 +132,7 @@ void write_dir_to_blk(uint32_t block) {
     block_write(dirent, block, 1);
 }
 
-void write_inode(mode_t mode, uint32_t inode_no) {
+void create_inode(mode_t mode, uint32_t inode_no) {
     assert(inode_no > 1 && inode_no < inode_count);
     struct fs_inode *inode = calloc(1, sizeof(struct fs_inode));
     inode->uid = 0;
@@ -541,7 +541,7 @@ uint32_t write_to_dirent(const char *dir_name, mode_t mode, int32_t block) {
             if (allocated_inode < 0)
                 return allocated_inode;
 
-            write_inode(mode, allocated_inode);
+            create_inode(mode, allocated_inode);
             dir_entry->valid = 1;
             dir_entry->inode = allocated_inode;
             int j = 0;
@@ -874,6 +874,28 @@ int lab3_utimens(const char *path, const struct timespec tv[2], struct fuse_file
 	return 0;
 }
 
+int lab3_chmod(const char *path, mode_t new_mode, struct fuse_file_info *fi) {
+    uint32_t *inode_no = malloc(sizeof(uint32_t));
+    *inode_no = 1; // initially, starts from root dir
+    /* Read tokens from path through parser */
+    char *tokens[MAX_TOKENS], linebuf[1024];
+    int n_tokens =
+        split_path(path, MAX_TOKENS, tokens, linebuf, sizeof(linebuf));
+    
+    int res = _getinodeno(n_tokens, tokens, inode_no);
+    if (res < 0) {
+    	return res;
+    }
+    
+    struct fs_inode *inode = inode_tbl + *inode_no;
+    
+    // todo inode->mode = (inode->mode | S_IFMT) | new_mode;
+    inode->mode = inode->mode | new_mode;
+    block_write(inode_tbl, inode_region_blk, super->inodes_len);
+    
+    return 0;
+}
+
 /* for read-only version you need to implement:
  * - lab3_init
  * - lab3_getattr
@@ -904,7 +926,7 @@ struct fuse_operations fs_ops = {
     //    .unlink = lab3_unlink,
     .rmdir = lab3_rmdir,
     //    .rename = lab3_rename,
-    //    .chmod = lab3_chmod,
+    .chmod = lab3_chmod,
     //    .truncate = lab3_truncate,
     //    .write = lab3_write,
     .utimens = lab3_utimens,
