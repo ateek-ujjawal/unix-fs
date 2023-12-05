@@ -896,8 +896,8 @@ int lab3_chmod(const char *path, mode_t new_mode, struct fuse_file_info *fi) {
 
     struct fs_inode *inode = inode_tbl + *inode_no;
 
-    // todo inode->mode = (inode->mode | S_IFMT) | new_mode;
-    inode->mode = inode->mode | new_mode;
+    inode->mode = (inode->mode & S_IFMT) | new_mode;
+    // inode->mode = inode->mode | new_mode;
     block_write(inode_tbl, inode_region_blk, super->inodes_len);
 
     return 0;
