@@ -87,6 +87,14 @@ unsigned long get_usecs(void) {
     return tv.tv_sec * 1000000 + tv.tv_usec;
 }
 
+int write_block_bmp_back() {
+	return block_write(block_bmp, 1, super->blk_map_len);
+}
+
+int write_inode_bmp_back() {
+	return block_write(inode_bmp, 1 + super->blk_map_len, super->in_map_len);
+}
+
 // check the block is located at data blocks region and in use
 int check_data_blk(int32_t blk) {
     if (blk >= data_blk && blk < super->disk_size && bit_test(block_bmp, blk)) {
@@ -103,7 +111,7 @@ uint32_t allocate_inode() {
         bool test = bit_test(inode_bmp, i);
         if (!test) {
             bit_set(inode_bmp, i);
-            block_write(inode_bmp, 1 + super->blk_map_len, super->in_map_len);
+            write_inode_bmp_back();
             return i;
         }
     }
@@ -119,7 +127,7 @@ int32_t allocate_data_blk() {
         bool test = bit_test(block_bmp, i);
         if (!test) {
             bit_set(block_bmp, i);
-            block_write(block_bmp, 1, super->blk_map_len);
+            write_block_bmp_back();
             return i;
         }
     }
@@ -558,7 +566,7 @@ uint32_t write_to_dirent(const char *dir_name, mode_t mode, int32_t block) {
     return 0;
 }
 
-int create(uint32_t inode_no, char *dir_name, mode_t mode) {
+int create_dir_file(uint32_t inode_no, char *dir_name, mode_t mode) {
     assert(inode_no >= 1 && inode_no < inode_count);
 
     struct fs_inode *inode = inode_tbl + inode_no;
@@ -684,11 +692,11 @@ int lab3_mkdir(const char *path, mode_t mode) {
         return res;
     }
 
-    res = create(*inode_no, tokens[n_tokens], mode | S_IFDIR);
+    res = create_dir_file(*inode_no, tokens[n_tokens], mode | S_IFDIR);
     
     if (res < 0) {
     	return res;
-   	}
+    }
 
     return res;
 }
@@ -742,7 +750,7 @@ int remove_from_dirent(uint32_t inode_no, char *name) {
                 inode->ptrs[i] = 0;
                 inode->size -= BLOCK_SIZE;
                 block_write(inode_tbl, inode_region_blk, super->inodes_len);
-                block_write(block_bmp, 1, super->blk_map_len);
+                write_block_bmp_back();
                 success = 1;
             }
             return success;
@@ -760,7 +768,7 @@ int remove_from_dirent(uint32_t inode_no, char *name) {
                     *(blks + i) = 0;
                     inode->size -= BLOCK_SIZE;
                     block_write(inode_tbl, inode_region_blk, super->inodes_len);
-                    block_write(block_bmp, 1, super->blk_map_len);
+                    write_block_bmp_back();
                     success = 1;
                 }
                 return success;
@@ -785,7 +793,7 @@ int remove_from_dirent(uint32_t inode_no, char *name) {
                             inode->size -= BLOCK_SIZE;
                             block_write(inode_tbl, inode_region_blk,
                                         super->inodes_len);
-                            block_write(block_bmp, 1, super->blk_map_len);
+                            write_block_bmp_back();
                             success = 1;
                         }
                         return success;
@@ -825,7 +833,7 @@ int lab3_rmdir(const char *path) {
 
     if (*inode_no != 1) {
         bit_clear(inode_bmp, *inode_no);
-        block_write(inode_bmp, 1 + super->blk_map_len, super->in_map_len);
+        write_inode_bmp_back();
     }
 
     *inode_no = 1;
@@ -867,7 +875,7 @@ int lab3_create(const char *path, mode_t mode, struct fuse_file_info *fi) {
     	return -ENOTDIR;
     }
     
-    return create(*inode_no, tokens[n_tokens], mode | S_IFREG);
+    return create_dir_file(*inode_no, tokens[n_tokens], mode | S_IFREG);
 }
 
 int lab3_utimens(const char *path, const struct timespec tv[2], struct fuse_file_info *fi) {
@@ -894,6 +902,200 @@ int lab3_chmod(const char *path, mode_t new_mode, struct fuse_file_info *fi) {
     block_write(inode_tbl, inode_region_blk, super->inodes_len);
     
     return 0;
+}
+
+int lab3_unlink(const char *path) {
+    uint32_t *inode_no = malloc(sizeof(uint32_t));
+    *inode_no = 1; // initially, starts from root dir
+    /* Read tokens from path through parser */
+    char *tokens[MAX_TOKENS], linebuf[1024];
+    int n_tokens =
+        split_path(path, MAX_TOKENS, tokens, linebuf, sizeof(linebuf));
+    
+    int res = _getinodeno(n_tokens, tokens, inode_no);
+    if (res < 0) {
+    	return res;
+    }
+    
+    struct fs_inode *inode = inode_tbl + *inode_no;
+    
+    if (S_ISDIR(inode->mode)) {
+    	return -EISDIR;
+    }
+    
+    // free direct pointers block
+    for (int i = 0; i < N_DIRECT; i++) {
+    	if (check_data_blk(inode->ptrs[i])) {
+    		bit_clear(block_bmp, inode->ptrs[i]);
+    	}
+    }
+    
+    // free indirect pointer block
+    if (check_data_blk(inode->indir_1)) {
+    	int32_t *blks = calloc(MAX_BLKS_IN_BLK, sizeof(int32_t));
+    	block_read(blks, inode->indir_1, 1);
+    	for (int i = 0; i < MAX_BLKS_IN_BLK; i++) {
+    		if (check_data_blk(*(blks + i))) {
+    			bit_clear(block_bmp, *(blks + i));
+    		}
+    	}
+    	bit_clear(block_bmp, inode->indir_1);
+    }
+    
+    // free double indirect pointer block
+    if (check_data_blk(inode->indir_2)) {
+    	int32_t *blks_1 = calloc(MAX_BLKS_IN_BLK, sizeof(int32_t));
+    	block_read(blks_1, inode->indir_2, 1);
+    	for (int i = 0; i < MAX_BLKS_IN_BLK; i++) {
+    		int32_t blks_2 = *(blks_1 + i);
+    		if (check_data_blk(blks_2)) {
+    			int32_t *blks = calloc(MAX_BLKS_IN_BLK, sizeof(int32_t));
+    			block_read(blks, blks_2, 1);
+    			for (int j = 0; j < MAX_BLKS_IN_BLK; j++) {
+    				if (check_data_blk(*(blks + j))) {
+    					bit_clear(block_bmp, *(blks + j));
+    				}
+    			}
+    			bit_clear(block_bmp, blks_2);
+    		}
+    	}
+    	bit_clear(block_bmp, inode->indir_2);
+    }
+    
+    write_block_bmp_back();
+    
+    // free inode no
+    bit_clear(inode_bmp, *inode_no);
+    write_inode_bmp_back();
+    
+    // remove from parent dirent
+    *inode_no = 1;
+    n_tokens--;
+    _getinodeno(n_tokens, tokens, inode_no);
+    res = remove_from_dirent(*inode_no, tokens[n_tokens]);
+    assert(res != 0);
+    return 0;
+}
+
+int search_rename(const char *src_name, const char *dst_name, int32_t block) {
+	if (!check_data_blk(block)) {
+		return 0;
+	}
+	
+	struct fs_dirent *dirs = calloc(MAX_ENTRIES, sizeof(struct fs_dirent));
+	block_read(dirs, block, 1);
+	for (int i = 0; i < MAX_ENTRIES; i++) {
+		struct fs_dirent *dir_entry = dirs + i;
+		if (dir_entry->valid && !strcmp(dir_entry->name, src_name)) {
+			memset(dir_entry->name, 0, sizeof(dir_entry));
+			strcpy(dir_entry->name, dst_name);
+			block_write(dirs, block, 1);
+			return 1;
+		}
+	}
+	
+	return 0;
+}
+
+int rename_dir(const char *src_name, const char *dst_name, uint32_t inode_no) {
+	assert(inode_no >= 1 && inode_no < inode_count);
+	struct fs_inode *inode = inode_tbl + inode_no;
+	for (int i = 0; i < N_DIRECT; i++) {
+		int search_res = search_rename(src_name, dst_name, inode->ptrs[i]);
+		if (search_res) {
+			return 0;
+		}
+	}
+	
+	if (check_data_blk(inode->indir_1)) {
+		int32_t *blks = calloc(MAX_BLKS_IN_BLK, sizeof(int32_t));
+		block_read(blks, inode->indir_1, 1);
+		for (int i = 0; i < MAX_BLKS_IN_BLK; i++) {
+			int search_res = search_rename(src_name, dst_name, *(blks + i));
+			if (search_res) {
+				return 0;
+			}
+		}
+	}
+	
+	if (check_data_blk(inode->indir_2)) {
+		int32_t *blks_1 = calloc(MAX_BLKS_IN_BLK, sizeof(int32_t));
+		block_read(blks_1, inode->indir_2, 1);
+		for (int i = 0; i < MAX_BLKS_IN_BLK; i++) {
+			int32_t blks_2 = *(blks_1 + i);
+			if (check_data_blk(blks_2)) {
+				int32_t *blks = calloc(MAX_BLKS_IN_BLK, sizeof(int32_t));
+				block_read(blks, blks_2, 1);
+				for (int j = 0; j < MAX_BLKS_IN_BLK; j++) {
+					int search_res = search_rename(src_name, dst_name, *(blks + j));
+					if (search_res) {
+						return 0;
+					}
+				}
+			}
+		}
+	}
+	
+	return -ENOENT;
+}
+
+int lab3_rename(const char *src_path, const char *dst_path, unsigned int flags) {
+    uint32_t *inode_no_src = malloc(sizeof(uint32_t));
+    *inode_no_src = 1; // initially, starts from root dir
+    /* Read tokens from path through parser */
+    char *tokens_src[MAX_TOKENS], linebuf_src[1024];
+    int n_tokens_src =
+        split_path(src_path, MAX_TOKENS, tokens_src, linebuf_src, sizeof(linebuf_src));
+    
+    int res_src = _getinodeno(n_tokens_src, tokens_src, inode_no_src);
+    if (res_src < 0) {
+    	return res_src;
+    }
+    
+    uint32_t *inode_no_dst = malloc(sizeof(uint32_t));
+    *inode_no_dst = 1; // initially, starts from root dir
+    /* Read tokens from path through parser */
+    char *tokens_dst[MAX_TOKENS], linebuf_dst[1024];
+    int n_tokens_dst =
+        split_path(dst_path, MAX_TOKENS, tokens_dst, linebuf_dst, sizeof(linebuf_dst));
+    
+    int res_dst = _getinodeno(n_tokens_dst, tokens_dst, inode_no_dst);
+    if (res_dst < 0) {
+    	return res_dst;
+    }
+    
+    if (n_tokens_src != n_tokens_dst) {
+    	return -EINVAL;
+    }
+    
+    for (int i = 0; i < n_tokens_src - 1; i++) {
+    	if (strcmp(tokens_src[i], tokens_dst[i])) {
+    		return -EINVAL;
+    	}
+    }
+    
+    if (!strcmp(tokens_src[n_tokens_src - 1], tokens_dst[n_tokens_src - 1])) {
+    	return 0;
+    }
+    
+    struct fs_inode *inode_dst = inode_tbl + *inode_no_dst;
+    if (S_ISDIR(inode_dst->mode)) {
+    	int check_empty_res = check_if_empty(*inode_no_dst);
+    	if (check_empty_res < 0) {
+    		return check_empty_res;
+    	}
+    	lab3_rmdir(dst_path);
+    } else {
+    	// if dst is a file
+    	lab3_unlink(dst_path);
+    }
+    
+	// change the name of parent dir entry
+	uint32_t *inode_p = malloc(sizeof(uint32_t));
+	*inode_p = 1;
+	_getinodeno(n_tokens_src - 1, tokens_src, inode_p);
+	
+	return rename_dir(tokens_src[n_tokens_src - 1], tokens_dst[n_tokens_src - 1], *inode_p);
 }
 
 /* for read-only version you need to implement:
@@ -923,9 +1125,9 @@ struct fuse_operations fs_ops = {
     .read = lab3_read,
     .create = lab3_create,
     .mkdir = lab3_mkdir,
-    //    .unlink = lab3_unlink,
+    .unlink = lab3_unlink,
     .rmdir = lab3_rmdir,
-    //    .rename = lab3_rename,
+    .rename = lab3_rename,
     .chmod = lab3_chmod,
     //    .truncate = lab3_truncate,
     //    .write = lab3_write,
