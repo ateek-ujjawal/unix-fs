@@ -579,6 +579,7 @@ int create_dir_file(uint32_t inode_no, char *dir_name, mode_t mode) {
             }
             inode->size += BLOCK_SIZE;
             inode->ptrs[i] = data_blk;
+            write_inode_tbl_back();
         }
 
         /* Write directory to dirent */
@@ -599,6 +600,7 @@ int create_dir_file(uint32_t inode_no, char *dir_name, mode_t mode) {
         int32_t *blks = calloc(MAX_BLKS_IN_BLK, sizeof(int32_t));
         block_write(blks, blk_no, 1);
         inode->indir_1 = blk_no;
+        write_inode_tbl_back();
     }
     int32_t *blks = calloc(MAX_BLKS_IN_BLK, sizeof(int32_t));
     block_read(blks, inode->indir_1, 1);
@@ -609,6 +611,7 @@ int create_dir_file(uint32_t inode_no, char *dir_name, mode_t mode) {
                 return data_blk;
             }
             inode->size += BLOCK_SIZE;
+            write_inode_tbl_back();
             *(blks + i) = data_blk;
         }
 
@@ -630,6 +633,7 @@ int create_dir_file(uint32_t inode_no, char *dir_name, mode_t mode) {
         int32_t *blks_1 = calloc(MAX_BLKS_IN_BLK, sizeof(int32_t));
         block_write(blks_1, blk1_no, 1);
         inode->indir_2 = blk1_no;
+        write_inode_tbl_back();
     }
     int32_t *blks_1 = calloc(MAX_BLKS_IN_BLK, sizeof(int32_t));
     block_read(blks_1, inode->indir_2, 1);
@@ -653,6 +657,7 @@ int create_dir_file(uint32_t inode_no, char *dir_name, mode_t mode) {
                     return data_blk;
                 }
                 inode->size += BLOCK_SIZE;
+                write_inode_tbl_back();
                 *(blks_2 + k) = data_blk;
             }
 
@@ -901,8 +906,7 @@ int lab3_chmod(const char *path, mode_t new_mode, struct fuse_file_info *fi) {
     struct fs_inode *inode = inode_tbl + *inode_no;
 
     inode->mode = (inode->mode & S_IFMT) | new_mode;
-    // inode->mode = inode->mode | new_mode;
-    block_write(inode_tbl, inode_region_blk, super->inodes_len);
+    write_inode_tbl_back();
 
     return 0;
 }
