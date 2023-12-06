@@ -116,7 +116,7 @@ uint32_t allocate_inode() {
     return -ENOSPC;
 }
 
-uint32_t allocate_data_blk() {
+int32_t allocate_data_blk() {
     int data_blk_start =
         1 + super->blk_map_len + super->in_map_len + super->inodes_len;
     /*Loop throught bitmap to check for available data blocks, and allocate if
@@ -700,9 +700,12 @@ int lab3_mkdir(const char *path, mode_t mode) {
 
 int check_if_empty(uint32_t inode_no) {
     struct fs_inode *inode = inode_tbl + inode_no;
+    
+    int data_blk_start =
+        1 + super->blk_map_len + super->in_map_len + super->inodes_len;
 
     for (int i = 0; i < N_DIRECT; i++) {
-        if (inode->ptrs[0] != 0)
+        if (inode->ptrs[i] > data_blk_start && inode->ptrs[i] < BLOCK_SIZE && check_data_blk(inode->ptrs[i]))
             return -ENOTEMPTY;
     }
 
@@ -710,7 +713,7 @@ int check_if_empty(uint32_t inode_no) {
         int32_t *blks = calloc(MAX_BLKS_IN_BLK, sizeof(int32_t));
         block_read(blks, inode->indir_1, 1);
         for (int i = 0; i < MAX_BLKS_IN_BLK; i++) {
-            if (*(blks + i) != 0)
+            if (*(blks + i) > data_blk_start && *(blks + i) < BLOCK_SIZE && check_data_blk(*(blks + i)))
                 return -ENOTEMPTY;
         }
     }
@@ -724,7 +727,7 @@ int check_if_empty(uint32_t inode_no) {
                 int32_t *blks = calloc(MAX_BLKS_IN_BLK, sizeof(int32_t));
                 block_read(blks, blks_2, 1);
                 for (int k = 0; k < MAX_BLKS_IN_BLK; k++) {
-                    if (*(blks + k) != 0)
+                    if (*(blks + k) > data_blk_start && *(blks + k) < BLOCK_SIZE && check_data_blk(*(blks + k)))
                         return -ENOTEMPTY;
                 }
             }
@@ -1149,8 +1152,8 @@ void *write_blk_file(uint32_t blk, char *buf) {
 int write_file(struct fs_inode *inode, const char *buf, off_t offset, size_t len) {
     char *out_buffer = calloc(BLOCK_SIZE, 1);
     
-    uint32_t count = 0, start_block, end_block, bytes_written, data_blk, off_start;
-    bytes_written = 0;
+    uint32_t count = 0, start_block, end_block, bytes_written, allocated_data_blk, off_start;
+    bytes_written = len;
     off_start = (offset % BLOCK_SIZE);
     start_block = offset / BLOCK_SIZE;
     end_block = (offset + len) / BLOCK_SIZE;
@@ -1161,30 +1164,36 @@ int write_file(struct fs_inode *inode, const char *buf, off_t offset, size_t len
         if (count >= start_block && count <= end_block) {
         
             if (inode->ptrs[i] == 0) {
-            		data_blk = allocate_data_blk();
-            		if (data_blk < 0)
-            			return data_blk;
-            		inode->ptrs[i] = data_blk;
+            		allocated_data_blk = allocate_data_blk();
+            		if (allocated_data_blk < 0)
+            			return allocated_data_blk;
+            		inode->ptrs[i] = allocated_data_blk;
             		read_done = true;
             }
-            
+            char *read_buffer;
         	if(!read_done) {
-            	char *read_buffer = read_blk_file(inode->ptrs[i]);
-	            for (int i = 0; i < BLOCK_SIZE; i++) {
-	            	if (i < off_start)
-            			out_buffer[i] = read_buffer[i];
-            		else if (bytes_written < len) {
-            			out_buffer[i] = buf[bytes_written];
-            			bytes_written++;
-            		}
+            	read_buffer = read_blk_file(inode->ptrs[i]);
+            	memcpy(out_buffer, read_buffer, off_start);
+            	if (len < BLOCK_SIZE - off_start) {
+            		memcpy(out_buffer + off_start, buf, len);
+            		memcpy(out_buffer + off_start + len, read_buffer + off_start + len, BLOCK_SIZE - off_start - len); 
+            		len -= len;
+            	} else {
+            		memcpy(out_buffer + off_start, buf, BLOCK_SIZE - off_start);
+            		len -= BLOCK_SIZE - off_start;
             	}
             	read_done = true;
             } else {
-            	for (int i = 0; i < BLOCK_SIZE; i++) {
-            		if (bytes_written < len) {
-            			out_buffer[i] = buf[bytes_written];
-            			bytes_written++;
-            		}
+            	if (count == end_block) {
+            		read_buffer = read_blk_file(inode->ptrs[i]);
+            	}
+            	if (len > 0 && len < BLOCK_SIZE) {
+            		memcpy(out_buffer, buf, len);
+            		memcpy(out_buffer + len, read_buffer + len, BLOCK_SIZE - len);
+            		len -= len; 
+            	} else {
+            		memcpy(out_buffer, buf, BLOCK_SIZE);
+            		len -= BLOCK_SIZE;
             	}
             }
             
@@ -1193,10 +1202,10 @@ int write_file(struct fs_inode *inode, const char *buf, off_t offset, size_t len
         }
 
         if (count > end_block) {
-        	if (offset + len > inode->size || (offset + len < inode->size && offset == 0))
-            	inode->size = offset + len;
+        	if (offset + bytes_written > inode->size)
+            	inode->size = offset + bytes_written;
         	block_write(inode_tbl, inode_region_blk, super->inodes_len);
-            return 0;
+            return bytes_written;
         }
 
         count++;
@@ -1220,30 +1229,36 @@ int write_file(struct fs_inode *inode, const char *buf, off_t offset, size_t len
         if (count >= start_block && count <= end_block) {
         
             if (*(blks + i) == 0) {
-            		data_blk = allocate_data_blk();
-            		if (data_blk < 0)
-            			return data_blk;
-            		*(blks + i) = data_blk;
+            		allocated_data_blk = allocate_data_blk();
+            		if (allocated_data_blk < 0)
+            			return allocated_data_blk;
+            		*(blks + i) = allocated_data_blk;
             		read_done = true;
             }
-            
+            char *read_buffer;
         	if(!read_done) {
-            	char *read_buffer = read_blk_file(*(blks + i));
-	            for (int i = 0; i < BLOCK_SIZE; i++) {
-	            	if (i < off_start)
-            			out_buffer[i] = read_buffer[i];
-            		else if (bytes_written < len) {
-            			out_buffer[i] = buf[bytes_written];
-            			bytes_written++;
-            		}
+            	read_buffer = read_blk_file(*(blks + i));
+            	memcpy(out_buffer, read_buffer, off_start);
+            	if (len < BLOCK_SIZE - off_start) {
+            		memcpy(out_buffer + off_start, buf, len);
+            		memcpy(out_buffer + off_start + len, read_buffer + off_start + len, BLOCK_SIZE - off_start - len); 
+            		len -= len;
+            	} else {
+            		memcpy(out_buffer + off_start, buf, BLOCK_SIZE - off_start);
+            		len -= BLOCK_SIZE - off_start;
             	}
             	read_done = true;
             } else {
-            	for (int i = 0; i < BLOCK_SIZE; i++) {
-            		if (bytes_written < len) {
-            			out_buffer[i] = buf[bytes_written];
-            			bytes_written++;
-            		}
+            	if (count == end_block) {
+            		read_buffer = read_blk_file(*(blks + i));
+            	}
+            	if (len > 0 && len < BLOCK_SIZE) {
+            		memcpy(out_buffer, buf, len);
+            		memcpy(out_buffer + len, read_buffer + len, BLOCK_SIZE - len);
+            		len -= len; 
+            	} else {
+            		memcpy(out_buffer, buf, BLOCK_SIZE);
+            		len -= BLOCK_SIZE;
             	}
             }
             
@@ -1252,11 +1267,10 @@ int write_file(struct fs_inode *inode, const char *buf, off_t offset, size_t len
         }
 
         if (count > end_block) {
-            block_write(blks, inode->indir_1, 1);
-        	if (offset + len > inode->size || (offset + len < inode->size && offset == 0))
-            	inode->size = offset + len;
-            block_write(inode_tbl, inode_region_blk, super->inodes_len);
-            return 0;
+        	if (offset + bytes_written > inode->size)
+            	inode->size = offset + bytes_written;
+        	block_write(inode_tbl, inode_region_blk, super->inodes_len);
+            return bytes_written;
         }
 
         count++;
@@ -1293,31 +1307,36 @@ int write_file(struct fs_inode *inode, const char *buf, off_t offset, size_t len
 		    if (count >= start_block && count <= end_block) {
 		    
 		        if (*(blks_2 + k) == 0) {
-		        		data_blk = allocate_data_blk();
-		        		if (data_blk < 0)
-		        			return data_blk;
-		        		*(blks_2 + k) = data_blk;
+		        		allocated_data_blk = allocate_data_blk();
+		        		if (allocated_data_blk < 0)
+		        			return allocated_data_blk;
+		        		*(blks_2 + k) = allocated_data_blk;
 		        		read_done = true;
 		        }
-		        
-            
+		        char *read_buffer;
 		    	if(!read_done) {
-		        	char *read_buffer = read_blk_file(*(blks_2 + k));
-			        for (int i = 0; i < BLOCK_SIZE; i++) {
-			        	if (i < off_start)
-		        			out_buffer[i] = read_buffer[i];
-		        		else if (bytes_written < len) {
-		        			out_buffer[i] = buf[bytes_written];
-		        			bytes_written++;
-		        		}
+		        	read_buffer = read_blk_file(*(blks_2 + k));
+		        	memcpy(out_buffer, read_buffer, off_start);
+		        	if (len < BLOCK_SIZE - off_start) {
+		        		memcpy(out_buffer + off_start, buf, len);
+		        		memcpy(out_buffer + off_start + len, read_buffer + off_start + len, BLOCK_SIZE - off_start - len); 
+		        		len -= len;
+		        	} else {
+		        		memcpy(out_buffer + off_start, buf, BLOCK_SIZE - off_start);
+		        		len -= BLOCK_SIZE - off_start;
 		        	}
 		        	read_done = true;
 		        } else {
-		        	for (int i = 0; i < BLOCK_SIZE; i++) {
-		        		if (bytes_written < len) {
-		        			out_buffer[i] = buf[bytes_written];
-		        			bytes_written++;
-		        		}
+		        	if (count == end_block) {
+		        		read_buffer = read_blk_file(*(blks_2 + k));
+		        	}
+		        	if (len > 0 && len < BLOCK_SIZE) {
+		        		memcpy(out_buffer, buf, len);
+		        		memcpy(out_buffer + len, read_buffer + len, BLOCK_SIZE - len);
+		        		len -= len; 
+		        	} else {
+		        		memcpy(out_buffer, buf, BLOCK_SIZE);
+		        		len -= BLOCK_SIZE;
 		        	}
 		        }
 		        
@@ -1326,13 +1345,12 @@ int write_file(struct fs_inode *inode, const char *buf, off_t offset, size_t len
 		    }
 
 		    if (count > end_block) {
-		        block_write(blks_2, *(blks_1 + j), 1);
-        		if (offset + len > inode->size || (offset + len < inode->size && offset == 0))
-		        	inode->size = offset + len;
-		        block_write(inode_tbl, inode_region_blk, super->inodes_len);
-		        return 0;
+		    	if (offset + bytes_written > inode->size)
+		        	inode->size = offset + bytes_written;
+		    	block_write(inode_tbl, inode_region_blk, super->inodes_len);
+		        return bytes_written;
 		    }
-
+		    
 		    count++;
         }
         block_write(blks_2, *(blks_1 + j), 1);
@@ -1363,9 +1381,7 @@ int lab3_write(const char *path, const char *buf, size_t len, off_t offset,
     
     res = write_file(inode, buf, offset, len);
     
-    if (res == 0)
-    	return len;
-    	
+    
     return res;
 }
 
