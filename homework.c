@@ -610,10 +610,11 @@ int create_dir_file(uint32_t inode_no, char *dir_name, mode_t mode) {
 
         dir_inode = write_to_dirent(dir_name, mode, *(blks + i));
 
-        if (dir_inode)
+        if (dir_inode) {
+        	block_write(blks, inode->indir_1, 1);
             return 0;
+        }
     }
-    block_write(blks, inode->indir_1, 1);
 
     /* Write to free directory entry in double indirect pointers */
     // if indir_2 not exists, create first
@@ -653,10 +654,11 @@ int create_dir_file(uint32_t inode_no, char *dir_name, mode_t mode) {
 
             dir_inode = write_to_dirent(dir_name, mode, *(blks_2 + k));
 
-            if (dir_inode)
+            if (dir_inode) {
+                block_write(blks_2, *(blks_1 + j), 1);
                 return 0;
+            }
         }
-        block_write(blks_2, *(blks_1 + j), 1);
     }
 
     return -ENOSPC;
