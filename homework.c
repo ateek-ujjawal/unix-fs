@@ -93,6 +93,10 @@ int write_inode_bmp_back() {
     return block_write(inode_bmp, 1 + super->blk_map_len, super->in_map_len);
 }
 
+int write_inode_tbl_back() {
+	return block_write(inode_tbl, inode_region_blk, super->inodes_len);
+}
+
 // check the block is located at data blocks region and in use
 int check_data_blk(int32_t blk) {
     if (blk >= data_blk && blk < super->disk_size && bit_test(block_bmp, blk)) {
@@ -148,7 +152,7 @@ void create_inode(mode_t mode, uint32_t inode_no) {
     inode->size = 0;
     struct fs_inode *location = (inode_tbl + inode_no);
     memcpy(location, inode, sizeof(struct fs_inode));
-    block_write(inode_tbl, inode_region_blk, super->inodes_len);
+    write_inode_tbl_back();
 }
 
 int allocate_dirent() {
@@ -748,7 +752,7 @@ int remove_from_dirent(uint32_t inode_no, char *name) {
                 bit_clear(block_bmp, inode->ptrs[i]);
                 inode->ptrs[i] = 0;
                 inode->size -= BLOCK_SIZE;
-                block_write(inode_tbl, inode_region_blk, super->inodes_len);
+                write_inode_tbl_back();
                 write_block_bmp_back();
                 success = 1;
             }
@@ -766,7 +770,7 @@ int remove_from_dirent(uint32_t inode_no, char *name) {
                     bit_clear(block_bmp, *(blks + i));
                     *(blks + i) = 0;
                     inode->size -= BLOCK_SIZE;
-                    block_write(inode_tbl, inode_region_blk, super->inodes_len);
+                    write_inode_tbl_back();
                     write_block_bmp_back();
                     success = 1;
                 }
@@ -790,8 +794,7 @@ int remove_from_dirent(uint32_t inode_no, char *name) {
                             bit_clear(block_bmp, *(blks + k));
                             *(blks + k) = 0;
                             inode->size -= BLOCK_SIZE;
-                            block_write(inode_tbl, inode_region_blk,
-                                        super->inodes_len);
+                            write_inode_tbl_back();
                             write_block_bmp_back();
                             success = 1;
                         }
@@ -1135,7 +1138,7 @@ int lab3_truncate(const char *path, off_t new_len, struct fuse_file_info *fi) {
     free_file_blk(*inode_no);
 
     inode->size = 0;
-    write_inode_bmp_back();
+    write_inode_tbl_back();
 
     return 0;
 }
@@ -1204,7 +1207,7 @@ int write_file(struct fs_inode *inode, const char *buf, off_t offset, size_t len
         if (count > end_block) {
         	if (offset + bytes_written > inode->size)
             	inode->size = offset + bytes_written;
-        	block_write(inode_tbl, inode_region_blk, super->inodes_len);
+        	write_inode_tbl_back();
             return bytes_written;
         }
 
@@ -1269,7 +1272,7 @@ int write_file(struct fs_inode *inode, const char *buf, off_t offset, size_t len
         if (count > end_block) {
         	if (offset + bytes_written > inode->size)
             	inode->size = offset + bytes_written;
-        	block_write(inode_tbl, inode_region_blk, super->inodes_len);
+        	write_inode_tbl_back();
             return bytes_written;
         }
 
@@ -1347,7 +1350,7 @@ int write_file(struct fs_inode *inode, const char *buf, off_t offset, size_t len
 		    if (count > end_block) {
 		    	if (offset + bytes_written > inode->size)
 		        	inode->size = offset + bytes_written;
-		    	block_write(inode_tbl, inode_region_blk, super->inodes_len);
+		    	write_inode_tbl_back();
 		        return bytes_written;
 		    }
 		    
