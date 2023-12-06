@@ -418,9 +418,6 @@ char *get_file(struct fs_inode *inode, off_t offset, uint32_t bytes_to_copy) {
     uint32_t count = 0;
     uint32_t start_block = offset / BLOCK_SIZE;
     uint32_t end_block = (offset + bytes_to_copy) / BLOCK_SIZE;
-    uint32_t size = 0;
-    
-    struct fs_inode temp_in = *inode;
 
     // Read direct pointer block data into buffer
     for (int i = 0; i < N_DIRECT; i++) {
@@ -1156,8 +1153,6 @@ int write_file(struct fs_inode *inode, const char *buf, off_t offset, size_t len
     start_block = offset / BLOCK_SIZE;
     end_block = (offset + len) / BLOCK_SIZE;
     bool read_done = false;
-    
-    struct fs_inode temp_in = *inode;
 
     // Read direct pointer block data into buffer
     for (int i = 0; i < N_DIRECT; i++) {
