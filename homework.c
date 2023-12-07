@@ -710,9 +710,6 @@ int lab3_mkdir(const char *path, mode_t mode) {
 int check_if_empty(uint32_t inode_no) {
     struct fs_inode *inode = inode_tbl + inode_no;
 
-    int data_blk_start =
-        1 + super->blk_map_len + super->in_map_len + super->inodes_len;
-
     for (int i = 0; i < N_DIRECT; i++) {
         if (check_data_blk(inode->ptrs[i]))
             return -ENOTEMPTY;
