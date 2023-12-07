@@ -30,7 +30,7 @@ struct fs_inode *inode_tbl;
 uint32_t inode_count;
 uint32_t inode_region_blk;
 int32_t data_blk;
-uint32_t data_len;
+uint32_t disk_size;
 
 #define MAX_ENTRIES (BLOCK_SIZE / sizeof(struct fs_dirent))
 #define MAX_BLKS_IN_BLK (BLOCK_SIZE / sizeof(int32_t))
@@ -99,7 +99,7 @@ int write_inode_tbl_back() {
 
 // check the block is located at data blocks region and in use
 int check_data_blk(int32_t blk) {
-    if (blk >= data_blk && blk < super->disk_size && bit_test(block_bmp, blk)) {
+    if (blk >= data_blk && blk < disk_size && bit_test(block_bmp, blk)) {
         return 1;
     }
 
@@ -125,7 +125,7 @@ int32_t allocate_data_blk() {
         1 + super->blk_map_len + super->in_map_len + super->inodes_len;
     /*Loop throught bitmap to check for available data blocks, and allocate if
      * free */
-    for (int i = data_blk_start; i <= data_len; i++) {
+    for (int i = data_blk_start; i < disk_size; i++) {
         bool test = bit_test(block_bmp, i);
         if (!test) {
             bit_set(block_bmp, i);
@@ -307,7 +307,7 @@ void *lab3_init(struct fuse_conn_info *conn, struct fuse_config *cfg) {
     block_read(inode_tbl, inode_region_blk, super->inodes_len);
 
     data_blk = inode_region_blk + super->inodes_len;
-    data_len = BLOCK_SIZE * super->blk_map_len;
+    disk_size = super->disk_size;
 
     return NULL;
 }
@@ -1161,8 +1161,8 @@ int write_file(struct fs_inode *inode, const char *buf, off_t offset,
                size_t len) {
     char *out_buffer = calloc(BLOCK_SIZE, 1);
 
-    uint32_t count = 0, start_block, end_block, bytes_written,
-             allocated_data_blk, off_start;
+    uint32_t count = 0, start_block, end_block, bytes_written, off_start;
+    int32_t allocated_data_blk;
     bytes_written = len;
     off_start = (offset % BLOCK_SIZE);
     start_block = offset / BLOCK_SIZE;
@@ -1324,7 +1324,7 @@ int write_file(struct fs_inode *inode, const char *buf, off_t offset,
             int32_t *blks_2 = calloc(MAX_BLKS_IN_BLK, sizeof(int32_t));
             block_write(blks_2, blk2_no, 1);
             *(blks_1 + j) = blk2_no;
-            block_write(blks, inode->indir_2, 1);
+            block_write(blks_1, inode->indir_2, 1);
         }
         int32_t *blks_2 = calloc(MAX_BLKS_IN_BLK, sizeof(int32_t));
         block_read(blks_2, *(blks_1 + j), 1);
