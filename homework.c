@@ -106,7 +106,7 @@ int check_data_blk(int32_t blk) {
     return 0;
 }
 
-uint32_t allocate_inode() {
+int32_t allocate_inode() {
     /* Loop through bitmap to check for available inodes, and allocate if free
      */
     for (int i = 2; i < inode_count; i++) {
@@ -183,7 +183,7 @@ uint32_t search_dir(const char *dir_name, int32_t block) {
     return 0;
 }
 
-uint32_t remove_dir(const char *dir_name, int32_t block) {
+int32_t remove_dir(const char *dir_name, int32_t block) {
     if (!check_data_blk(block)) {
         return 0;
     }
@@ -532,7 +532,7 @@ int lab3_read(const char *path, char *buf, size_t len, off_t offset,
     return bytes_to_copy;
 }
 
-uint32_t write_to_dirent(const char *dir_name, mode_t mode, int32_t block) {
+int32_t write_to_dirent(const char *dir_name, mode_t mode, int32_t block) {
     if (!check_data_blk(block)) {
         return 0;
     }
