@@ -916,7 +916,7 @@ int free_file_blk(uint32_t inode_no) {
     // free direct pointers block
     for (int i = 0; i < N_DIRECT; i++) {
         if (check_data_blk(inode->ptrs[i])) {
-        	inode->ptrs[i] = 0;
+            inode->ptrs[i] = 0;
             bit_clear(block_bmp, inode->ptrs[i]);
         }
     }
@@ -955,8 +955,8 @@ int free_file_blk(uint32_t inode_no) {
         bit_clear(block_bmp, inode->indir_2);
     }
 
-	inode->size = 0;
-	write_inode_tbl_back();
+    inode->size = 0;
+    write_inode_tbl_back();
     write_block_bmp_back();
 
     return 0;
@@ -1172,7 +1172,7 @@ int write_file(struct fs_inode *inode, const char *buf, off_t offset,
     // Read direct pointer block data into buffer
     for (int i = 0; i < N_DIRECT; i++) {
         if (count >= start_block && count <= end_block) {
-			
+
             if (inode->ptrs[i] == 0) {
                 allocated_data_blk = allocate_data_blk();
                 if (allocated_data_blk < 0)
