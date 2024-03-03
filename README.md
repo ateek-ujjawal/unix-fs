@@ -1,5 +1,5 @@
 # unix-fs
-A simplified file system based on ext2. Worked with Haonan Lu to build this as part of Lab 3 assignment for CS5600 course, Fall 2023, Northeastern University.
+A simplified file system based on ext2. Worked with Haonan Lu to build this as part of Lab 3 assignment for the CS5600 course, Fall 2023, Northeastern University.
 
 The file system runs on FUSE and FUSE structure pointers are passed as arguments to the functions that implement various operations. The file system uses 1KB blocks. It is based on ext2 with allocation bitmaps and inodes being grouped at the start of the disk. Inodes have 6 direct pointers, an indirect pointer and a double indirect pointer. The following FUSE functions have been implemented:
 
