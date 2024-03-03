@@ -2,8 +2,8 @@
  * file:        homework.c
  * description: skeleton file for CS 5600 system
  *
- * CS 5600, Computer Systems, Northeastern CCIS
- * Peter Desnoyers, November 2023
+ * CS 5600, Computer Systems, Northeastern Khoury College
+ * Ateek Ujjawal, November 2023
  */
 
 #define FUSE_USE_VERSION 30
@@ -1416,26 +1416,6 @@ int lab3_write(const char *path, const char *buf, size_t len, off_t offset,
     return res;
 }
 
-/* for read-only version you need to implement:
- * - lab3_init
- * - lab3_getattr
- * - lab3_readdir
- * - lab3_read
- *
- * for the full version you need to implement:
- * - lab3_create
- * - lab3_mkdir
- * - lab3_unlink
- * - lab3_rmdir
- * - lab3_rename
- * - lab3_chmod
- * - lab3_truncate
- * - lab3_write
- */
-
-/* operations vector. Please don't rename it, or else you'll break things
- * uncomment fields as you implement them.
- */
 struct fuse_operations fs_ops = {
     .init = lab3_init,
     .getattr = lab3_getattr,
