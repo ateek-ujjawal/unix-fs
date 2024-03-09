@@ -66,8 +66,7 @@ int split_path(const char *path, int argc_max, char **argv, char *buf,
     return i;
 }
 
-/* I'll give you this function for free, to help
- */
+
 void inode_2_stat(struct stat *sb, struct fs_inode *in) {
     memset(sb, 0, sizeof(*sb));
     sb->st_mode = in->mode;
